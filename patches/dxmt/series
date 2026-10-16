@@ -1,0 +1,5 @@
+# Applied in order with 'git apply' on DXMT v0.80 (589adb78).
+# 0001: PR #166 head a1aa73fd (3Shain/dxmt), "feat(d3d11): implement getting Metal layer from HWND via ExtEscape" (LGPL-2.1+ changes).
+# 0002: upstream main commit 06065754af91352caaf8db87d4566fecc4124552, fixes air_tessellation.metal with Xcode 27's Metal toolchain.
+0001-pr166-a1aa73fd8a85-ExtEscape-metal-layer.diff
+0002-upstream-06065754af91-metal-compile-fix.diff

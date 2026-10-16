@@ -1,0 +1,116 @@
+From: Marc-Aurel Zent <mzent@codeweavers.com>
+Subject: [PATCH] winemac: Implement ExtEscape queries for Metal layer creation and release.
+
+Lets a Windows-side graphics layer (DXMT) get the CAMetalLayer of a window's client surface:
+MACDRV_ESCAPE_GET_SURFACE (6790) returns the surface and its layer, MACDRV_ESCAPE_RELEASE_SURFACE (6791) releases it.
+
+Provenance (recorded by AnvilMac, 2026-10-15):
+  Original: WineHQ merge request !11058 (open; last updated 2026-06-25), commit 59df4cc328920c00f0f59c2846bfb88cac04ff57,
+            "winemac: Implement ExtEscape queries for Metal layer creation and release.", Marc-Aurel Zent,
+            2026-05-21. License: LGPL-2.1-or-later (Wine).
+  Rebase onto wine-11.19 (AnvilMac): wine-11.19's OpenGL/Vulkan rework replaced winemac's
+            macdrv_client_surface_create(hwnd) with the driver callback macdrv_CreateClientSurface(hwnd, format, raw).
+            The handler now calls macdrv_CreateClientSurface(hwnd, 0, FALSE) - the same arguments win32u's own Vulkan
+            path uses (get_unused_client_surface(hwnd, 0, FALSE)) - and converts with impl_from_client_surface().
+            Everything else is unchanged: escape codes, struct layout, swapchain/layer calls, release. The macdrv.h
+            definitions sit before 11.19's new "#undef BOOL". The MR's second winemac commit (07bb09bd, Vulkan surfaces
+            through the escape) is not carried: 11.19's win32u now creates the client surface for Vulkan itself.
+---
+--- a/dlls/winemac.drv/gdi.c
++++ b/dlls/winemac.drv/gdi.c
+@@ -229,11 +229,73 @@
+ }
+ 
+ 
++/***********************************************************************
++ *              ExtEscape (MACDRV.@)
++ */
++static INT macdrv_ExtEscape(PHYSDEV dev, INT escape, INT in_count, LPCVOID in_data,
++                            INT out_count, LPVOID out_data)
++{
++    switch (escape)
++    {
++    case QUERYESCSUPPORT:
++        if (in_data && in_count >= sizeof(DWORD))
++        {
++            switch (*(const INT *)in_data)
++            {
++            case MACDRV_ESCAPE_GET_SURFACE:
++            case MACDRV_ESCAPE_RELEASE_SURFACE:
++                return TRUE;
++            }
++        }
++        break;
++
++    case MACDRV_ESCAPE_GET_SURFACE:
++    {
++        struct macdrv_escape_surface *data = out_data;
++        struct macdrv_client_surface *surface;
++        struct client_surface *client;
++        HWND hwnd = NtUserWindowFromDC(dev->hdc);
++
++        if (out_count < sizeof(*data)) return FALSE;
++
++        if (!hwnd || !(client = macdrv_CreateClientSurface(hwnd, 0, FALSE))) return FALSE;
++        surface = impl_from_client_surface(client);
++
++        if (!macdrv_client_surface_acquire_metal_swapchain(surface))
++        {
++            client_surface_release(client);
++            return FALSE;
++        }
++
++        data->surface = (UINT_PTR)surface;
++        data->layer = (UINT_PTR)macdrv_swapchain_get_layer(surface->metal_swapchain);
++        return TRUE;
++    }
++    case MACDRV_ESCAPE_RELEASE_SURFACE:
++    {
++        const struct macdrv_escape_surface *data = in_data;
++        struct macdrv_client_surface *surface;
++
++        if (in_count < sizeof(*data)) return FALSE;
++
++        if (!data) return FALSE;
++
++        surface = (struct macdrv_client_surface *)(UINT_PTR)data->surface;
++        if (surface) client_surface_release(&surface->client);
++        return TRUE;
++    }
++    }
++
++    return FALSE;
++}
++
++
+ static const struct user_driver_funcs macdrv_funcs =
+ {
+     .dc_funcs.pCreateCompatibleDC = macdrv_CreateCompatibleDC,
+     .dc_funcs.pCreateDC = macdrv_CreateDC,
+     .dc_funcs.pDeleteDC = macdrv_DeleteDC,
++    .dc_funcs.pExtEscape = macdrv_ExtEscape,
+     .dc_funcs.pGetDeviceCaps = macdrv_GetDeviceCaps,
+     .dc_funcs.pGetDeviceGammaRamp = macdrv_GetDeviceGammaRamp,
+     .dc_funcs.pSetDeviceGammaRamp = macdrv_SetDeviceGammaRamp,
+--- a/dlls/winemac.drv/macdrv.h
++++ b/dlls/winemac.drv/macdrv.h
+@@ -392,5 +392,19 @@
+     return (p - dst) * sizeof(WCHAR);
+ }
+ 
++/* ExtEscape definitions */
++
++enum macdrv_escape_codes
++{
++    MACDRV_ESCAPE_GET_SURFACE = 6790,
++    MACDRV_ESCAPE_RELEASE_SURFACE,
++};
++
++struct macdrv_escape_surface
++{
++    UINT64 surface;
++    UINT64 layer;
++};
++
+ #undef BOOL
+ #endif  /* __WINE_MACDRV_H */
