@@ -16,7 +16,12 @@ STAGES=("$@"); [ ${#STAGES[@]} -gt 0 ] || STAGES=(fetch toolchain deps wine dxmt
 DL="$WORK/downloads"; SRC="$WORK/src"; BLD="$WORK/build"; TC="$WORK/toolchain"; DEPS="$WORK/deps"
 STAGE="$WORK/stage"; OUT="$WORK/out"; LOGS="$WORK/logs"
 mkdir -p "$DL" "$SRC" "$BLD" "$TC" "$DEPS" "$STAGE" "$OUT" "$LOGS" "$WORK/tmp"
-export TMPDIR="$WORK/tmp" MACOSX_DEPLOYMENT_TARGET LC_ALL=C LANG=C
+# MACOSX_DEPLOYMENT_TARGET is passed only to Wine and the libraries bundled with it (Gcenx's 10.15). DXMT keeps its
+# own: exported to everything, it made Apple's Metal compiler default to Metal 2.2, which DXMT's shaders can't use
+# ("'kernel' attribute requires … macos-metal2.3", dry run 2026-10-16).
+DEPLOY="MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
+unset MACOSX_DEPLOYMENT_TARGET
+export TMPDIR="$WORK/tmp" LC_ALL=C LANG=C
 SYSPATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH="$SYSPATH"
 NCPU="$(sysctl -n hw.ncpu)"
@@ -92,14 +97,14 @@ deps() {
     step "bundled libraries (x86_64): FreeType, Vulkan loader, MoltenVK"
     if [ ! -f "$DEPS/lib/libfreetype.6.dylib" ]; then
         rm -rf "$BLD/freetype-2.13.3"; tar -xJf "$DL/freetype-2.13.3.tar.xz" -C "$BLD"
-        timed dep-freetype /usr/bin/arch -x86_64 /bin/bash -c "cd '$BLD/freetype-2.13.3' && ./configure --prefix='$DEPS' \
+        timed dep-freetype /usr/bin/env "$DEPLOY" /usr/bin/arch -x86_64 /bin/bash -c "cd '$BLD/freetype-2.13.3' && ./configure --prefix='$DEPS' \
             CC='/usr/bin/clang -arch x86_64' --without-harfbuzz --without-png --without-brotli --without-bzip2 --with-zlib=no \
             --enable-shared --disable-static && make -j$NCPU && make install"
     fi
     if [ ! -f "$DEPS/lib/libvulkan.1.dylib" ]; then
         timed dep-vulkan-headers /bin/bash -c "PATH='$TC/venv/bin:$SYSPATH' cmake -S '$SRC/Vulkan-Headers' -B '$BLD/vulkan-headers' \
             -DCMAKE_INSTALL_PREFIX='$DEPS' -G Ninja && PATH='$TC/venv/bin:$SYSPATH' cmake --install '$BLD/vulkan-headers'"
-        timed dep-vulkan-loader /bin/bash -c "PATH='$TC/venv/bin:$SYSPATH' cmake -S '$SRC/Vulkan-Loader' -B '$BLD/vulkan-loader' -G Ninja \
+        timed dep-vulkan-loader /usr/bin/env "$DEPLOY" /bin/bash -c "PATH='$TC/venv/bin:$SYSPATH' cmake -S '$SRC/Vulkan-Loader' -B '$BLD/vulkan-loader' -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_INSTALL_PREFIX='$DEPS' \
             -DVULKAN_HEADERS_INSTALL_DIR='$DEPS' -DBUILD_TESTS=OFF -DCMAKE_IGNORE_PREFIX_PATH='/opt/homebrew;/usr/local' \
             && PATH='$TC/venv/bin:$SYSPATH' cmake --build '$BLD/vulkan-loader' && PATH='$TC/venv/bin:$SYSPATH' cmake --install '$BLD/vulkan-loader'"
@@ -125,7 +130,7 @@ wine() {
     fi
     mkdir -p "$b"
     if [ ! -f "$b/Makefile" ]; then
-        timed wine-configure /usr/bin/arch -x86_64 /bin/bash -c "cd '$b' && PATH='$TC/bison/bin:$SYSPATH:$TC/$MINGW_WINE/bin' '$s/configure' \
+        timed wine-configure /usr/bin/env "$DEPLOY" /usr/bin/arch -x86_64 /bin/bash -c "cd '$b' && PATH='$TC/bison/bin:$SYSPATH:$TC/$MINGW_WINE/bin' '$s/configure' \
             --build=x86_64-apple-darwin --prefix=/ --enable-archs=i386,x86_64 --enable-win64 --disable-tests --disable-winebth_sys \
             --disable-winemenubuilder --without-alsa --without-capi --with-coreaudio --without-cups --without-dbus --without-ffmpeg \
             --without-fontconfig --with-freetype --without-gettext --without-gettextpo --without-gphoto --without-gnutls \
@@ -141,9 +146,9 @@ wine() {
         grep -q SONAME_LIBVULKAN "$LOGS/wine-config.txt" && grep -q SONAME_LIBFREETYPE "$LOGS/wine-config.txt" \
             || fail "configure did not enable FreeType and Vulkan (logs/wine-configure.log)"
     fi
-    timed wine-make /usr/bin/arch -x86_64 /bin/bash -c "cd '$b' && PATH='$TC/bison/bin:$SYSPATH:$TC/$MINGW_WINE/bin' make -j$NCPU"
+    timed wine-make /usr/bin/env "$DEPLOY" /usr/bin/arch -x86_64 /bin/bash -c "cd '$b' && PATH='$TC/bison/bin:$SYSPATH:$TC/$MINGW_WINE/bin' make -j$NCPU"
     rm -rf "$STAGE/wine"
-    timed wine-install /usr/bin/arch -x86_64 /bin/bash -c "cd '$b' && PATH='$TC/bison/bin:$SYSPATH:$TC/$MINGW_WINE/bin' make install DESTDIR='$STAGE/wine'"
+    timed wine-install /usr/bin/env "$DEPLOY" /usr/bin/arch -x86_64 /bin/bash -c "cd '$b' && PATH='$TC/bison/bin:$SYSPATH:$TC/$MINGW_WINE/bin' make install DESTDIR='$STAGE/wine'"
     "$STAGE/wine/bin/wine" --version | tee "$LOGS/wine-version.txt"
 }
 
