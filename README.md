@@ -29,12 +29,19 @@ is Wine 12.0 once it ships.
 
 ## Licences
 
-- **Wine:** LGPL-2.1-or-later. The patches under `patches/wine` carry Wine's licence.
-- **DXMT:** v0.80 is MIT; the changes in `patches/dxmt` are LGPL-2.1-or-later.
-- **MoltenVK, the Vulkan loader:** Apache-2.0.
-- **FreeType:** the FreeType License (FTL).
+- **This repository's own files** (build scripts, workflow, `inputs.sh`, `requirements.txt`, series lists, docs):
+  **MIT**, see `LICENSE`.
+- **Patches** keep the licence of the project they change, stated in each patch file:
+  - `patches/wine/`: LGPL-2.1-or-later, as Wine;
+  - `patches/dxmt/`: LGPL-2.1-or-later (DXMT releases after v0.80 are LGPL; v0.80 itself is MIT).
+- **Built packages** contain:
+  - Wine: LGPL-2.1-or-later;
+  - DXMT: v0.80 MIT, plus the LGPL changes above;
+  - MoltenVK and the Khronos Vulkan loader: Apache-2.0;
+  - FreeType: FTL.
 
-Licence texts ship in each package under `share/doc/anvilmac-runtime/`. The build scripts' own licence is to be decided by the owner.
+  Their licence texts are in `share/doc/anvilmac-runtime/`. Every package is published with `sources-….tar`: the exact
+  sources, patches and scripts it was built from.
 
 ## Building locally
 

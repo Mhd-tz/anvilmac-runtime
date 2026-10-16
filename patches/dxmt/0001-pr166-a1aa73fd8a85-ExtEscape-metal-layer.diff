@@ -1,3 +1,8 @@
+Provenance (recorded by AnvilMac, 2026-10-16):
+  DXMT pull request #166 (https://github.com/3Shain/dxmt/pull/166), head commit a1aa73fd8a8569edcc83378804f94dfbdcfcea10,
+  "feat(d3d11): implement getting Metal layer from HWND via ExtEscape" (DXMT contributors).
+  License: LGPL-2.1-or-later (changes to DXMT after v0.80 are LGPL-2.1-or-later). Applied to DXMT v0.80 verbatim.
+
 diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
 index 5e9404d..4a7e4b1 100644
 --- a/src/d3d11/d3d11_swapchain.cpp

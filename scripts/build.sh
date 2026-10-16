@@ -215,7 +215,7 @@ package() {
     ( cd "$OUT" && tar -cJf "$name.tar.xz" "$name" )
     # LGPL source offer: the exact Wine source, every patch, the build scripts and the other sources' tarballs.
     ( cd "$WORK" && tar -cf "$OUT/sources-$name.tar" downloads/*.tar* downloads/MoltenVK-macos.tar \
-        -C "$REPO" inputs.sh requirements.txt patches scripts .github )
+        -C "$REPO" LICENSE README.md inputs.sh requirements.txt patches scripts .github )
     python3 "$REPO/scripts/manifest.py" "$pkg" "$OUT/$name.manifest.json"
     ( cd "$OUT" && shasum -a 256 "$name.tar.xz" "sources-$name.tar" "$name.manifest.json" ) > "$OUT/SHA256SUMS"
     cat "$OUT/SHA256SUMS"; du -sh "$pkg" "$OUT/$name.tar.xz"

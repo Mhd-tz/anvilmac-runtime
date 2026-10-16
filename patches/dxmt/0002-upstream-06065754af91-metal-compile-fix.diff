@@ -1,3 +1,8 @@
+Provenance (recorded by AnvilMac, 2026-10-16):
+  DXMT upstream commit 06065754af91352caaf8db87d4566fecc4124552 (https://github.com/3Shain/dxmt, main), fixes
+  air_tessellation.metal with Xcode 27's Metal toolchain (DXMT contributors).
+  License: LGPL-2.1-or-later (DXMT changes after v0.80). Applied verbatim.
+
 diff --git a/src/airconv/shaders/air_tessellation.metal b/src/airconv/shaders/air_tessellation.metal
 index 56ba86e..e6705d8 100644
 --- a/src/airconv/shaders/air_tessellation.metal
