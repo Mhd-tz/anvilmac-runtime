@@ -3,6 +3,14 @@
 The Wine runtime AnvilMac runs Windows games with, built from pinned,
 checksum-verified sources by `scripts/build.sh`, locally or in GitHub Actions (`.github/workflows/build.yml`).
 
+**Independent project.** This is not affiliated with, or endorsed by, WineHQ (the Wine project), CodeWeavers,
+Apple, or the DXMT project. Wine, CrossOver, macOS, Metal and DXMT belong to their respective owners; the names are
+used only to say what this build contains.
+
+**Source for every build.** Every published build comes with its full corresponding source, as the LGPL requires:
+`sources-<package>.tar`, published next to the package. It contains the exact Wine source tarball, every patch, the
+build scripts and the source tarballs of the other components.
+
 **Status:** experimental. Built packages are marked experimental and local-only in their manifest until they pass
 AnvilMac's acceptance tests. Nothing here is a release yet.
 
