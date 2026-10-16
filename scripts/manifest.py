@@ -71,6 +71,9 @@ m = {
         {"source": "lib/wine/x86_64-windows/winemetal.dll", "destination": "drive_c/windows/system32/winemetal.dll"},
         {"source": "lib/wine/i386-windows/winemetal.dll", "destination": "drive_c/windows/syswow64/winemetal.dll"},
     ],
+    # Upstream Wine sends WM_POINTER* for the mouse (bug 53847), so AnvilMac's stub warning doesn't apply.
+    # Checked on this build with InputProbe, 64- and 32-bit, 2026-10-16.
+    "fixesWineStubs": [{"id": "mouse-in-pointer", "architectures": ["x86_64", "i386"]}],
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
     "launchEnvironment": {"VK_DRIVER_FILES": "@root/share/vulkan/icd.d/MoltenVK_icd.json"},
 }

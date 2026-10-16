@@ -23,6 +23,7 @@ AnvilMac's acceptance tests. Nothing here is a release yet.
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
 | FreeType | 2.13.3 | Wine's font back end |
+| Wine Mono | 11.3.0 | .NET for Windows programs; the unmodified upstream release that Wine 11.19 asks for, in `share/wine/mono`. Wine Gecko is not bundled. |
 
 Every input and its checksum is in `inputs.sh`. A patch that doesn't apply without fuzz fails the build. The target
 is Wine 12.0 once it ships.
@@ -46,7 +47,9 @@ is Wine 12.0 once it ships.
   - Wine: LGPL-2.1-or-later;
   - DXMT: v0.80 MIT, plus the LGPL changes above;
   - MoltenVK and the Khronos Vulkan loader: Apache-2.0;
-  - FreeType: FTL.
+  - FreeType: FTL;
+  - Wine Mono: mixed: LGPL and MIT for most of Mono, MS-PL and zlib for FNA and its libraries, GPL with an exception
+    for SharpZipLib (its `COPYING`, included as `Wine-Mono-COPYING`). Its source tarball is in `sources-….tar`.
 
   Their licence texts are in `share/doc/anvilmac-runtime/`. Every package is published with `sources-….tar`: the exact
   sources, patches and scripts it was built from.

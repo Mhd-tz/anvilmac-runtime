@@ -59,6 +59,8 @@ fetch() {
     fetch_file "$FREETYPE_URL" "$FREETYPE_SHA" >/dev/null
     fetch_file "$MOLTENVK_URL" "$MOLTENVK_SHA" >/dev/null
     fetch_file "$SHAIN_WINE_URL" "$SHAIN_WINE_SHA" >/dev/null
+    fetch_file "$WINE_MONO_URL" "$WINE_MONO_SHA" >/dev/null
+    fetch_file "$WINE_MONO_SRC_URL" "$WINE_MONO_SRC_SHA" >/dev/null
     mkdir -p "$DL/pip"
     python3 -m pip download -q --no-cache-dir --require-hashes --only-binary=:all: -d "$DL/pip" -r "$REPO/requirements.txt" \
         || fail "pip download"
@@ -191,6 +193,11 @@ package() {
         done
     done
     cp "$(find "$BLD/dxmt-win64/install" -name winemetal.so | head -1)" "$L/wine/x86_64-unix/winemetal.so"
+    # Wine Mono, shared install: Wine finds share/wine/mono/wine-mono-<version> and uses it without copying it into
+    # each prefix (as in Gcenx's packages). Wine Gecko is not bundled.
+    mkdir -p "$root/share/wine/mono"
+    tar -xJf "$DL/$(basename "$WINE_MONO_URL")" -C "$root/share/wine/mono"
+    [ -d "$root/share/wine/mono/wine-mono-$WINE_MONO_VERSION" ] || fail "Wine Mono did not unpack to wine-mono-$WINE_MONO_VERSION"
     # Install ids and rpaths as in Gcenx's packaging: leaf ids, @loader_path/ and @loader_path/../../ (lib/).
     for f in "$L"/*.dylib "$L"/wine/x86_64-unix/*.so; do
         install_name_tool -id "$(basename "$f")" "$f" 2>/dev/null || true
@@ -207,9 +214,14 @@ package() {
     cp "$SRC/Vulkan-Loader/LICENSE.txt" "$root/share/doc/anvilmac-runtime/Vulkan-Loader-LICENSE.txt"
     [ -f "$DEPS/MoltenVK-LICENSE" ] && cp "$DEPS/MoltenVK-LICENSE" "$root/share/doc/anvilmac-runtime/MoltenVK-LICENSE"
     cp "$SRC/dxmt/LICENSE" "$root/share/doc/anvilmac-runtime/DXMT-LICENSE" 2>/dev/null || true
+    # Wine Mono's binary release has no licence file; its source's COPYING lists each part's licence (LGPL, MIT, MS-PL,
+    # zlib, SharpZipLib's GPL with exception).
+    tar -xJOf "$DL/$(basename "$WINE_MONO_SRC_URL")" "wine-mono-$WINE_MONO_VERSION/COPYING" > "$root/share/doc/anvilmac-runtime/Wine-Mono-COPYING" \
+        && [ -s "$root/share/doc/anvilmac-runtime/Wine-Mono-COPYING" ] || fail "Wine Mono's COPYING not found"
     { echo "AnvilMac runtime: Wine $WINE_VERSION + DXMT $DXMT_TAG, built $(date -u +%F) from pinned sources."
       echo "Wine patches:"; grep -v '^#' "$REPO/patches/wine/series"
       echo "DXMT patches:"; grep -v '^#' "$REPO/patches/dxmt/series"
+      echo "Wine Mono $WINE_MONO_VERSION (unmodified upstream release; its source, wine-mono-$WINE_MONO_VERSION-src.tar.xz, is in the source archive)."
       echo "Corresponding source: sources-$name.tar, published with this package."; } > "$root/share/doc/anvilmac-runtime/NOTICE-AnvilMac.txt"
     ( cd "$pkg" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 ) > "$pkg/SHA256SUMS"
     ( cd "$OUT" && tar -cJf "$name.tar.xz" "$name" )

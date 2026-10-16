@@ -44,6 +44,15 @@ MOLTENVK_VERSION=1.4.2
 MOLTENVK_URL=https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
 MOLTENVK_SHA=f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e      # GitHub release asset digest
 
+# Wine Mono (.NET for Windows programs), the version Wine 11.19 asks for (dlls/appwiz.cpl/addons.c MONO_VERSION; the
+# release's x86 .msi digest equals Wine's compiled-in MONO_SHA). Unpacked into share/wine/mono, where Wine uses it in
+# place; its source ships in the source archive. Wine Gecko is not bundled (owner, 2026-10-16).
+WINE_MONO_VERSION=11.3.0
+WINE_MONO_URL=https://github.com/madewokherd/wine-mono/releases/download/wine-mono-11.3.0/wine-mono-11.3.0-x86.tar.xz
+WINE_MONO_SHA=54a1b0111c3fe4b785eae688af94d27e64995707ad648b6fee8000381b80d298       # GitHub release asset digest
+WINE_MONO_SRC_URL=https://github.com/madewokherd/wine-mono/releases/download/wine-mono-11.3.0/wine-mono-11.3.0-src.tar.xz
+WINE_MONO_SRC_SHA=9f4f03285fbeed484980efbb1eba1c19069244aea401d2ff1585e3990782edf7   # GitHub release asset digest
+
 # --- DXMT (Direct3D 10/11 on Metal) ------------------------------------------------------------------------------------
 DXMT_REPO=https://github.com/3Shain/dxmt.git
 DXMT_TAG=v0.80
