@@ -16,7 +16,7 @@ MINGW_WINE_SHA=801b49549ae39043d7195062eede67916b5ab46318a89e3b8209dc8f49441abb 
 MINGW_DXMT=llvm-mingw-20251216-ucrt-macos-universal
 MINGW_DXMT_URL=https://github.com/mstorsjo/llvm-mingw/releases/download/20251216/$MINGW_DXMT.tar.xz
 MINGW_DXMT_SHA=38bb5e48ec3e0ce95fb901f4efff0bd6ffa966d1b32539a6510af816a959d160      # GitHub release asset digest
-BISON_URL=https://ftpmirror.gnu.org/bison/bison-3.8.2.tar.xz                           # Wine needs bison >= 3.0
+BISON_URL=https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz                               # Wine needs bison >= 3.0
 BISON_SHA=9bba0214ccf7f1079c5d59210045227bcf619519840ebfa80cd3849cff5a5bf2
 # Python build tools (requirements.txt pins versions and wheel hashes).
 # LLVM 15.0.7 for DXMT's native winemetal part (DXMT CI recipe): git tag, commit verified.

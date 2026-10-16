@@ -1,0 +1,52 @@
+# Builds the AnvilMac runtime from pinned sources (scripts/build.sh) on a standard GitHub-hosted macOS runner:
+# free and unlimited for public repositories (GitHub docs, checked 2026-10-15). No secrets are used.
+name: build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['inputs.sh', 'requirements.txt', 'patches/**', 'scripts/**', '.github/workflows/build.yml']
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-26            # arm64 (M1), 3 CPUs, 7 GB RAM, 14 GB SSD; x86_64 Wine is built with clang -arch x86_64
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1          # v7.0.1
+      - name: Record the build host
+        run: |
+          sw_vers; xcodebuild -version; xcrun --show-sdk-version; df -h "$RUNNER_TEMP"
+          /usr/bin/arch -x86_64 /usr/bin/true || sudo softwareupdate --install-rosetta --agree-to-license
+          xcrun -f metal || xcodebuild -downloadComponent MetalToolchain
+          xcrun metal --version
+      - name: Cache toolchains (llvm-mingw, bison, Python tools, LLVM 15)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9           # v6.1.0
+        with:
+          path: ${{ runner.temp }}/work/toolchain
+          key: toolchain-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('inputs.sh', 'requirements.txt') }}
+      - name: Build
+        run: env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin:/usr/sbin:/sbin scripts/build.sh "$RUNNER_TEMP/work"
+      - name: Disk and timings
+        if: always()
+        run: df -h "$RUNNER_TEMP"; cat "$RUNNER_TEMP/work/logs/timings.tsv" || true
+      - name: Upload the package, its manifest and the corresponding source
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
+        with:
+          name: anvilmac-runtime-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/work/out/*.tar.xz
+            ${{ runner.temp }}/work/out/sources-*.tar
+            ${{ runner.temp }}/work/out/*.manifest.json
+            ${{ runner.temp }}/work/out/SHA256SUMS
+          retention-days: 14
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9   # v7.0.2
+        with:
+          name: logs-${{ github.sha }}
+          path: ${{ runner.temp }}/work/logs
+          retention-days: 14
