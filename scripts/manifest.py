@@ -74,6 +74,8 @@ m = {
     # Upstream Wine sends WM_POINTER* for the mouse (bug 53847), so AnvilMac's stub warning doesn't apply.
     # Checked on this build with InputProbe, 64- and 32-bit, 2026-10-16.
     "fixesWineStubs": [{"id": "mouse-in-pointer", "architectures": ["x86_64", "i386"]}],
+    # patches/wine/0003: runtime HLSL compiles log begin/end on the "shadertime" channel (off unless WINEDEBUG enables it).
+    "diagnostics": ["shader-compile-timing"],
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
     "launchEnvironment": {"VK_DRIVER_FILES": "@root/share/vulkan/icd.d/MoltenVK_icd.json"},
 }

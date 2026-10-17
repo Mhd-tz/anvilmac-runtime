@@ -1,3 +1,4 @@
 # Applied in order with 'patch -p1 -F0' (no fuzz); a patch that doesn't apply fails the build.
 0001-win32u-Enable-host-Vulkan-portability-enumeration.patch
 0002-winemac-Implement-ExtEscape-queries-for-Metal-layer-creation-and-release.patch
+0003-wined3d-Log-the-start-and-end-of-every-runtime-HLSL-compile.patch

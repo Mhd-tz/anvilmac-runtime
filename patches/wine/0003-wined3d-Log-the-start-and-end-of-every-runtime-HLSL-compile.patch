@@ -1,0 +1,69 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] wined3d: Log the start and end of every runtime HLSL compile on a "shadertime" channel.
+
+d3dcompiler (D3DCompile*) and d3dx9 (shader and effect compilers) both import vkd3d_D3DCompile2VKD3D from wined3d.
+This wraps that one export: it logs "begin profile … entry …" before the compile and "end …, N ms, hr …" after it,
+then returns the same result. No behaviour change.
+
+The lines are TRACE messages on the new "shadertime" debug channel, so they are off unless WINEDEBUG enables
+it (trace+shadertime); normal game logs stay quiet. AnvilMac enables it for runtimes whose manifest declares the
+"shader-compile-timing" diagnostic, so it can tell a game that is still compiling a shader (vkd3d-shader can take
+hours on some shaders, WineHQ bug 58622) from one that froze.
+
+Provenance (recorded by AnvilMac, 2026-10-16):
+  Written for AnvilMac; not submitted upstream. Base: wine-11.19, commit 455e3509b98a.
+  Files: dlls/wined3d/wined3d_main.c, dlls/wined3d/wined3d.spec (Wine, LGPL-2.1-or-later).
+  License of this change: LGPL-2.1-or-later, like the files it changes. Copyright 2026 Mahdi Taziki.
+  Checked: on a local build, a finishing compile logs begin and end (20 ms); a compile vkd3d-shader doesn't finish logs
+  only begin; with WINEDEBUG unset, neither line appears.
+
+--- a/dlls/wined3d/wined3d.spec
++++ b/dlls/wined3d/wined3d.spec
+@@ -360,7 +360,7 @@
+ @ cdecl wined3d_vertex_declaration_incref(ptr)
+ 
+ @ stdcall vkd3d_D3DPreprocess(ptr long ptr ptr ptr ptr ptr) D3DPreprocess
+-@ stdcall vkd3d_D3DCompile2VKD3D(ptr long ptr ptr ptr ptr ptr long long long ptr long ptr ptr long) D3DCompile2VKD3D
++@ stdcall vkd3d_D3DCompile2VKD3D(ptr long ptr ptr ptr ptr ptr long long long ptr long ptr ptr long) wined3d_timed_D3DCompile2VKD3D
+ @ stdcall vkd3d_D3DReflectVKD3D(ptr long ptr ptr long) D3DReflectVKD3D
+ 
+ @ cdecl vkd3d_acquire_vk_queue(ptr)
+--- a/dlls/wined3d/wined3d_main.c
++++ b/dlls/wined3d/wined3d_main.c
+@@ -37,6 +37,7 @@
+ WINE_DEFAULT_DEBUG_CHANNEL(d3d);
+ WINE_DECLARE_DEBUG_CHANNEL(vkd3d);
+ WINE_DECLARE_DEBUG_CHANNEL(winediag);
++WINE_DECLARE_DEBUG_CHANNEL(shadertime);
+ 
+ struct wined3d_wndproc
+ {
+@@ -961,6 +962,28 @@
+ }
+ 
+ /* At process attach */
++/* Every runtime HLSL compile (d3dcompiler's D3DCompile* and d3dx9's shader and effect compilers import this) logs its
++ * start and its end on the "shadertime" channel, so a launcher can tell a compile that is still running from one that
++ * finished. */
++HRESULT WINAPI wined3d_timed_D3DCompile2VKD3D(const void *data, SIZE_T data_size, const char *filename,
++        const D3D_SHADER_MACRO *macros, ID3DInclude *include, const char *entry_point, const char *profile,
++        UINT flags, UINT effect_flags, UINT secondary_flags, const void *secondary_data, SIZE_T secondary_data_size,
++        ID3DBlob **shader, ID3DBlob **messages, unsigned int compiler_version)
++{
++    LARGE_INTEGER freq, start, end;
++    HRESULT hr;
++
++    QueryPerformanceFrequency(&freq);
++    QueryPerformanceCounter(&start);
++    TRACE_(shadertime)("begin profile %s entry %s\n", debugstr_a(profile), debugstr_a(entry_point));
++    hr = D3DCompile2VKD3D(data, data_size, filename, macros, include, entry_point, profile, flags, effect_flags,
++            secondary_flags, secondary_data, secondary_data_size, shader, messages, compiler_version);
++    QueryPerformanceCounter(&end);
++    TRACE_(shadertime)("end profile %s entry %s, %lu ms, hr %#lx\n", debugstr_a(profile), debugstr_a(entry_point),
++            (unsigned long)((end.QuadPart - start.QuadPart) * 1000 / freq.QuadPart), hr);
++    return hr;
++}
++
+ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void *reserved)
+ {
+     switch (reason)

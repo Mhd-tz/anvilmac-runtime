@@ -18,7 +18,7 @@ AnvilMac's acceptance tests. Nothing here is a release yet.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19 |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel |
 | DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape) and one upstream compile fix |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
