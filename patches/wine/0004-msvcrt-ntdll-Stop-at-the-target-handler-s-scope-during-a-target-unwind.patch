@@ -1,0 +1,43 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] msvcrt, ntdll: Stop at the target handler's scope during a target unwind.
+
+During a target unwind (EXCEPTION_TARGET_UNWIND), x64 __C_specific_handler walks the function's scope table and calls
+the termination handlers of the scopes it leaves. With Clang's nested SEH layout, the continuation of the handled
+scope can lie outside the PC range of an enclosing __finally, so the walk skipped the handled scope and ran the
+enclosing finally too early; normal continuation then ran it a second time. In C++ code that unregisters the same
+catch frame twice: OGRE's Sample Browser crashed in ucrtbase (_FindAndUnlinkFrame, NULL+8) while catching an ordinary
+exception. Stop the walk at the scope whose JumpTarget is the unwind target, as Windows does, in both copies of the
+scope walker (msvcrt/ucrtbase and ntdll).
+
+Provenance (recorded by AnvilMac, 2026-10-16):
+  Written for AnvilMac (investigation by OpenAI Codex, reviewed by Claude Code); not submitted upstream yet (draft 5 in
+  AnvilMac's notes). Base: wine-11.19, commit 455e3509b98a.
+  Files: dlls/msvcrt/except.c, dlls/ntdll/unwind.c (Wine, LGPL-2.1-or-later).
+  License of this change: LGPL-2.1-or-later. Copyright 2026 Mahdi Taziki.
+  Checked: five native nested-SEH scenarios pass through both handlers (two fail per handler without it); Wine's UCRT
+  C++ tests pass (41 x64, 36 i386); OGRE's original catch succeeds; hands-off input probes unchanged (54/54).
+
+--- a/dlls/msvcrt/except.c
++++ b/dlls/msvcrt/except.c
+@@ -1282,6 +1282,9 @@
+         {
+             if (pc < base + table->ScopeRecord[i].BeginAddress) continue;
+             if (pc >= base + table->ScopeRecord[i].EndAddress) continue;
++            if ((rec->ExceptionFlags & EXCEPTION_TARGET_UNWIND) &&
++                dispatch->TargetIp == base + table->ScopeRecord[i].JumpTarget)
++                break;
+             if (table->ScopeRecord[i].JumpTarget) continue;
+ 
+             if (rec->ExceptionFlags & EXCEPTION_TARGET_UNWIND &&
+--- a/dlls/ntdll/unwind.c
++++ b/dlls/ntdll/unwind.c
+@@ -2270,6 +2270,9 @@
+         {
+             if (pc < base + table->ScopeRecord[i].BeginAddress) continue;
+             if (pc >= base + table->ScopeRecord[i].EndAddress) continue;
++            if ((rec->ExceptionFlags & EXCEPTION_TARGET_UNWIND) &&
++                dispatch->TargetIp == base + table->ScopeRecord[i].JumpTarget)
++                break;
+             if (table->ScopeRecord[i].JumpTarget) continue;
+ 
+             if (rec->ExceptionFlags & EXCEPTION_TARGET_UNWIND &&

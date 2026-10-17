@@ -2,3 +2,5 @@
 0001-win32u-Enable-host-Vulkan-portability-enumeration.patch
 0002-winemac-Implement-ExtEscape-queries-for-Metal-layer-creation-and-release.patch
 0003-wined3d-Log-the-start-and-end-of-every-runtime-HLSL-compile.patch
+0004-msvcrt-ntdll-Stop-at-the-target-handler-s-scope-during-a-target-unwind.patch
+0005-winemac-Reassert-the-hidden-cursor-on-movement-in-an-active-fullscreen-window.patch
