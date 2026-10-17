@@ -1,0 +1,82 @@
+# Publishes a release from a build that has already been tested: the exact files of a successful `build` run (package,
+# AnvilMac manifest, corresponding source archive, SHA256SUMS), verified again, tagged on the commit that run built.
+# Nothing is rebuilt, so what was tested is what's released. Started by hand only. Free: a standard Linux runner,
+# no build, no secrets beyond the job's own token.
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ID of the successful build run to release (it must have been tested)'
+        required: true
+      tag:
+        description: 'Release tag, e.g. runtime-wine-11.19-1'
+        required: true
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write   # create the tag and the release
+      actions: read     # download the build run's artifact
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_ID: ${{ inputs.run_id }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check the build run and the tag
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "run_id must be a number"; exit 1; }
+          [[ "$TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "tag may contain only letters, digits, . _ -"; exit 1; }
+          gh run view "$RUN_ID" -R "$GITHUB_REPOSITORY" --json workflowName,status,conclusion,headSha > run.json
+          jq -e '.workflowName == "build" and .status == "completed" and .conclusion == "success"' run.json \
+            || { echo "run $RUN_ID is not a successful build run"; cat run.json; exit 1; }
+          echo "SHA=$(jq -r .headSha run.json)" >> "$GITHUB_ENV"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null 2>&1; then echo "release $TAG already exists"; exit 1; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1          # v7.0.1
+        with:
+          ref: ${{ env.SHA }}
+      - name: Download and verify the tested artifact
+        run: |
+          set -euo pipefail
+          gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n "anvilmac-runtime-$SHA" -D dist
+          cd dist && sha256sum -c SHA256SUMS && ls -la
+      - name: Release notes from the repository at that commit
+        run: |
+          set -euo pipefail
+          source inputs.sh
+          {
+            echo "AnvilMac runtime: Wine $WINE_VERSION + DXMT $DXMT_TAG, x86_64 (Apple silicon through Rosetta 2)."
+            echo
+            echo "Built from pinned, checksum-verified sources by build run $RUN_ID (commit $SHA); these are that run's exact files."
+            echo "Independent project: not affiliated with or endorsed by WineHQ, CodeWeavers, Apple or the DXMT project."
+            echo
+            echo "## Patches"
+            echo
+            echo "Wine (\`patches/wine\`, LGPL-2.1-or-later):"
+            grep -v '^#' patches/wine/series | while read -r p; do [ -n "$p" ] && echo "- $(sed -n 's/^Subject: \(\[PATCH\] \)\{0,1\}//p' "patches/wine/$p" | head -1) (\`$p\`)"; done
+            echo
+            echo "DXMT (\`patches/dxmt\`):"
+            grep -v '^#' patches/dxmt/series | while read -r p; do [ -n "$p" ] && echo "- \`$p\`"; done
+            echo
+            echo "## Inputs"
+            echo
+            echo "- Wine $WINE_VERSION; DXMT $DXMT_TAG; MoltenVK $MOLTENVK_VERSION; Khronos Vulkan loader $VULKAN_LOADER_TAG; Wine Mono $WINE_MONO_VERSION; FreeType 2.13.3."
+            echo "- Every input and its checksum: \`inputs.sh\` at $SHA."
+            echo
+            echo "## Files"
+            echo
+            echo "- the runtime package (\`.tar.xz\`, with \`SHA256SUMS\` of every file inside);"
+            echo "- its AnvilMac runtime manifest (\`.manifest.json\`);"
+            echo "- \`sources-….tar\`: the complete corresponding source (LGPL): the exact source tarballs, every patch, the build scripts;"
+            echo "- \`SHA256SUMS\` of the three files."
+          } > notes.md
+          cat notes.md
+      - name: Create the release
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/*.tar.xz dist/*.manifest.json dist/sources-*.tar dist/SHA256SUMS \
+            -R "$GITHUB_REPOSITORY" --target "$SHA" --title "$TAG" --notes-file notes.md
