@@ -18,12 +18,16 @@ AnvilMac's acceptance tests. Nothing here is a release yet.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); a fix for the system arrow staying visible over a fullscreen game's own cursor |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); a fix for the system arrow staying visible over a fullscreen game's own cursor; the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy |
 | DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape) and one upstream compile fix |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
 | FreeType | 2.13.3 | Wine's font back end |
 | Wine Mono | 11.3.0 | .NET for Windows programs; the unmodified upstream release that Wine 11.19 asks for, in `share/wine/mono`. Wine Gecko is not bundled. |
+
+**Apple's D3DMetal is not part of this runtime.** Patches 0006-0008 only let Wine load a copy of Apple's Game Porting
+Toolkit that the user downloaded from Apple and imported into AnvilMac; AnvilMac verifies Apple's signature before
+each launch. With no such copy (or outside AnvilMac) the code stays off and Wine behaves as without the patches.
 
 Every input and its checksum is in `inputs.sh`. A patch that doesn't apply without fuzz fails the build. The target
 is Wine 12.0 once it ships.

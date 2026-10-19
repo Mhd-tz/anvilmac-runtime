@@ -61,7 +61,9 @@ m = {
          "version": f"{env['DXMT_TAG']} + patches/dxmt/series"},
         {"id": "moltenvk", "status": "untested", "apis": ["vulkan"], "version": env["MOLTENVK_VERSION"]},
         {"id": "dxvk", "status": "absent", "apis": []},
-        {"id": "d3dmetal", "status": "absent", "apis": []},
+        # Loads the user's own imported copy of Apple's D3DMetal (patches 0006-0008); nothing from Apple is in the package.
+        {"id": "d3dmetal", "status": "untested", "apis": ["d3d10", "d3d11", "d3d12"], "maxD3DFeatureLevel": "12_1",
+         "userToolkit": True, "selection": {}},
     ],
     "integrity": {f: sha(f) for f in key_files},
     "signing": "adhoc",

@@ -1,0 +1,35 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] ntdll: Search the D3DMetal toolkit's DLL folder first when requested.
+
+The DLLs of Apple's Game Porting Toolkit (d3d12, d3d12core, dxgi, d3d11, d3d10, …) are marked as Wine builtins. Wine
+loads a builtin from its search path in order, and its own library folder comes first, so the runtime's d3d12.dll and
+DXMT's dxgi.dll would always win over the toolkit's. WINE_D3DMETAL_DLLPATH (an absolute path, e.g.
+<toolkit>/redist/lib/wine) is put before the runtime's folder; that folder's x86_64-unix/*.so are the toolkit's links
+to libd3dshared.dylib, found by Wine's normal lookup. Unset, empty or relative: the search path is exactly as before.
+
+AnvilMac sets it only for a game whose setup is D3DMetal, only to its own verified copy of the toolkit, and never
+while preparing a prefix (wineboot would copy the toolkit's DLLs into system32).
+
+Provenance (recorded by AnvilMac, 2026-10-18): written for AnvilMac, not from CrossOver (its source has the same
+search order). Copyright 2026 Mahdi Taziki. License: LGPL-2.1-or-later (Wine).
+---
+--- a/dlls/ntdll/unix/loader.c
++++ b/dlls/ntdll/unix/loader.c
+@@ -295,13 +295,16 @@
+ static void set_dll_path(void)
+ {
+     char *p, *path = getenv( "WINEDLLPATH" );
++    /* D3DMetal bridge: the user's toolkit DLLs before the runtime's own (AnvilMac, 2026-10-18; see patch header) */
++    const char *d3dmetal_path = getenv( "WINE_D3DMETAL_DLLPATH" );
+     int i, count = 0;
+ 
+     if (path) for (p = path, count = 1; *p; p++) if (*p == ':') count++;
+ 
+-    dll_paths = malloc( (count + 2) * sizeof(*dll_paths) );
++    dll_paths = malloc( (count + 3) * sizeof(*dll_paths) );
+     count = 0;
+ 
++    if (d3dmetal_path && d3dmetal_path[0] == '/') dll_paths[count++] = strdup( d3dmetal_path );
+     if (!build_dir) dll_paths[count++] = dll_dir;
+ 
+     if (path)

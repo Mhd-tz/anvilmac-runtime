@@ -4,3 +4,6 @@
 0003-wined3d-Log-the-start-and-end-of-every-runtime-HLSL-compile.patch
 0004-msvcrt-ntdll-Stop-at-the-target-handler-s-scope-during-a-target-unwind.patch
 0005-winemac-Reassert-the-hidden-cursor-on-movement-in-an-active-fullscreen-window.patch
+0006-winemac-Export-the-D3DMetal-driver-hooks.patch
+0007-ntdll-Search-the-D3DMetal-toolkit-DLL-folder-first-when-requested.patch
+0008-ntdll-Keep-the-old-macOS-gs-model-in-D3DMetal-processes.patch
