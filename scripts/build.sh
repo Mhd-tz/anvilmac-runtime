@@ -175,7 +175,7 @@ dxmt() {
 
 package() {
     step "package"
-    local name="anvilmac-runtime-wine-$WINE_VERSION-dxmt-0.80-x86_64" pkg root L f
+    local name="anvilmac-runtime-wine-$WINE_VERSION-$RUNTIME_RELEASE-dxmt-0.80-x86_64" pkg root L f
     pkg="$OUT/$name"; root="$pkg/Contents/Resources/wine"; L="$root/lib"
     rm -rf "$pkg"; mkdir -p "$root"
     cp -R "$STAGE/wine/." "$root/"

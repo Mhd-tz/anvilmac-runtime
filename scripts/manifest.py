@@ -7,7 +7,7 @@ The package stays experimental and local-only until it passes AnvilMac's accepta
 "untested". `integrity` covers the files AnvilMac checks before every launch (Wine's loader and server, the Unix
 libraries it relies on, the bundled libraries and DXMT); SHA256SUMS in the package lists every file.
 """
-import hashlib, json, os, subprocess, sys
+import hashlib, json, os, re, subprocess, sys
 
 pkg, out = sys.argv[1], sys.argv[2]
 root = os.path.join(pkg, "Contents", "Resources", "wine")
@@ -16,7 +16,7 @@ for line in open(os.path.join(os.path.dirname(__file__), "..", "inputs.sh")):
     line = line.split("#")[0].strip()
     if "=" in line:
         k, v = line.split("=", 1)
-        env[k] = v.strip('"')
+        env[k] = re.sub(r"\$(\w+)", lambda m: env.get(m.group(1), m.group(0)), v.strip('"'))   # $VAR from earlier lines
 
 def sha(rel):
     return hashlib.sha256(open(os.path.join(root, rel), "rb").read()).hexdigest()
