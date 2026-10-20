@@ -62,6 +62,6 @@ DXMT_COMMIT=589adb780354b461645b29999cefaf533594ee99      # v0.80 = MIT; patches
 MACOSX_DEPLOYMENT_TARGET=10.15                             # as Gcenx's builds
 # The release number is part of the package folder name and the manifest id, so two releases of the same Wine version
 # can be installed side by side (games pinned to the older one keep working).
-RUNTIME_RELEASE=4
+RUNTIME_RELEASE=5
 RUNTIME_ID=anvilmac-wine-11.19-$RUNTIME_RELEASE-dxmt-0.80-x86_64
 RUNTIME_NAME="AnvilMac Runtime 11.19-$RUNTIME_RELEASE (Wine 11.19 + DXMT 0.80)"

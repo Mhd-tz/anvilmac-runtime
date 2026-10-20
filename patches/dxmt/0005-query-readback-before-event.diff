@@ -1,0 +1,85 @@
+Provenance (recorded by AnvilMac, 2026-10-20):
+  Local patch for DXMT v0.80 (589adb780354b461645b29999cefaf533594ee99), after patches 0001-0004.
+  Local changes: LGPL-2.1-or-later. Underlying DXMT v0.80 code remains MIT (see upstream LICENSE).
+  Local implementation Copyright 2026 Mahdi Taziki.
+  Upstream checked at 50102f994b406f58f56d5d09f2ad20f9b90390a2:
+  https://github.com/3Shain/dxmt/blob/50102f994b406f58f56d5d09f2ad20f9b90390a2/src/dxmt/dxmt_command_queue.hpp
+  SignaledEventSeqId still reads the Metal event; no equivalent fix found in timestamp/query history.
+  On an M2 Pro, an original no-window D3D11 probe completes a trailing EVENT and DISJOINT while the
+  preceding TIMESTAMP still returns S_FALSE (4/10 x64 and 10/10 x86 samples on candidate 11.19-4).
+  Timestamp results are published in CommandChunk::reset on the finishing thread, after GPU completion.
+  Report D3D11 EVENT/DISJOINT completion only after that readback, using release/acquire publication.
+  Make the timestamp value atomic too: callers can poll it directly before any event completes.
+  This can delay event-query readiness until the end of its command chunk; explicit GPU fence signaling
+  remains unchanged. Requires performance and game acceptance before release. No Apple code modified.
+  Added for candidate 11.19-5, not an upstream commit and not proof of Turbines gameplay.
+
+Subject: [PATCH] dxmt: publish query readbacks before reporting event completion
+
+diff --git a/src/dxmt/dxmt_command_queue.hpp b/src/dxmt/dxmt_command_queue.hpp
+--- a/src/dxmt/dxmt_command_queue.hpp
++++ b/src/dxmt/dxmt_command_queue.hpp
+@@ -144,6 +144,7 @@
+   std::atomic_uint64_t ready_for_commit = 1;
+   std::atomic_uint64_t chunk_ongoing = 0;
+   CpuFence cpu_coherent;
++  std::atomic_uint64_t coherent_event_seq = 0;
+   CpuFence frame_latency_fence_;
+   std::atomic_bool stopped;
+ 
+@@ -214,7 +215,9 @@
+ 
+   uint64_t
+   SignaledEventSeqId() {
+-    return event.signaledValue();
++    // A GPU event can precede CPU query readback. Publish completion only after
++    // the finishing thread has made all query results in that chunk available.
++    return coherent_event_seq.load(std::memory_order_acquire);
+   };
+ 
+   obj_handle_t GetSharedEventListener() {
+diff --git a/src/dxmt/dxmt_command_queue.cpp b/src/dxmt/dxmt_command_queue.cpp
+--- a/src/dxmt/dxmt_command_queue.cpp
++++ b/src/dxmt/dxmt_command_queue.cpp
+@@ -189,7 +189,9 @@
+     if (chunk.signal_frame_latency_fence_ != ~0ull)
+       frame_latency_fence_.signal(chunk.signal_frame_latency_fence_);
+ 
++    const auto completed_event = chunk.chunk_event_id;
+     chunk.reset();
++    coherent_event_seq.store(completed_event, std::memory_order_release);
+     cpu_coherent.signal(internal_seq);
+     chunk_ongoing.fetch_sub(1, std::memory_order_release);
+     chunk_ongoing.notify_one();
+diff --git a/src/dxmt/dxmt_occlusion_query.hpp b/src/dxmt/dxmt_occlusion_query.hpp
+--- a/src/dxmt/dxmt_occlusion_query.hpp
++++ b/src/dxmt/dxmt_occlusion_query.hpp
+@@ -209,20 +209,21 @@
+ 
+   bool
+   getValue(uint64_t *value) {
+-    if (cached_value_ == ~0ull)
++    const auto sampled = cached_value_.load(std::memory_order_acquire);
++    if (sampled == ~0ull)
+       return false;
+ 
+-    *value = cached_value_;
++    *value = sampled;
+     return true;
+   }
+ 
+   void
+   issue(uint64_t sampled_data) {
+-    cached_value_ = sampled_data;
+-  }
+-
+-private:
+-  uint64_t cached_value_ = ~0ull;
++    cached_value_.store(sampled_data, std::memory_order_release);
++  }
++
++private:
++  std::atomic_uint64_t cached_value_ = ~0ull;
+   std::atomic<uint32_t> refcount_ = {0u};
+ };
+ 
