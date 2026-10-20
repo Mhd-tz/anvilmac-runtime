@@ -19,7 +19,7 @@ AnvilMac's acceptance tests. Nothing here is a release yet.
 | Component | Version | Notes |
 |---|---|---|
 | Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); a fix for the system arrow staying visible over a fullscreen game's own cursor; the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy |
-| DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix and upstream's `EnumAdapterByLuid` (Unreal Engine 5 games look up their GPU with it) |
+| DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, and a local Wine LUID lookup when Metal and Wine each expose one GPU (11.19-4 candidate; game acceptance pending) |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
 | FreeType | 2.13.3 | Wine's font back end |

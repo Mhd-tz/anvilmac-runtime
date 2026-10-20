@@ -5,3 +5,5 @@
 0001-pr166-a1aa73fd8a85-ExtEscape-metal-layer.diff
 0002-upstream-06065754af91-metal-compile-fix.diff
 0003-upstream-1cd369e68f-EnumAdapterByLuid.diff
+# 0004: local single-GPU Wine LUID lookup; upstream still uses Metal registryID. LGPL-2.1+.
+0004-wine-single-gpu-luid.diff
