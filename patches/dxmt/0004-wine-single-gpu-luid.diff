@@ -9,7 +9,8 @@ Provenance (recorded by AnvilMac, 2026-10-19):
   ID on ambiguous/failed enumeration. Cache the ID for both the D3DKMT handle and every DXGI description.
   Close the temporary enumeration handle. No Wine or Apple code is changed. Turbines needs a window test;
   fixing the ID mismatch alone is not proof that its IsSet assertion is fixed.
-  ABI declarations follow Wine 11.19 include/ddk/d3dkmthk.h (LGPL-2.1-or-later):
+  ABI declarations follow Wine 11.19 include/ddk/d3dkmthk.h (LGPL-2.1-or-later),
+  Copyright 2016 Henri Verbeet for CodeWeavers:
   https://gitlab.winehq.org/wine/wine/-/blob/wine-11.19/include/ddk/d3dkmthk.h
   License: LGPL-2.1-or-later. Local implementation Copyright 2026 Mahdi Taziki.
   Added for candidate 11.19-4; not an upstream commit.

@@ -22,7 +22,8 @@ mkdir -p "$DL" "$SRC" "$BLD" "$TC" "$DEPS" "$STAGE" "$OUT" "$LOGS" "$WORK/tmp"
 DEPLOY="MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
 unset MACOSX_DEPLOYMENT_TARGET
 export TMPDIR="$WORK/tmp" LC_ALL=C LANG=C
-SYSPATH=/usr/bin:/bin:/usr/sbin:/sbin
+# Optional local wrappers, supplied explicitly by the guarded build harness (not used in CI).
+SYSPATH="${ANVIL_BUILD_SHIMS:+$ANVIL_BUILD_SHIMS:}/usr/bin:/bin:/usr/sbin:/sbin"
 export PATH="$SYSPATH"
 NCPU="$(sysctl -n hw.ncpu)"
 
@@ -225,8 +226,11 @@ package() {
       echo "Corresponding source: sources-$name.tar, published with this package."; } > "$root/share/doc/anvilmac-runtime/NOTICE-AnvilMac.txt"
     ( cd "$pkg" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 ) > "$pkg/SHA256SUMS"
     ( cd "$OUT" && tar -cJf "$name.tar.xz" "$name" )
-    # LGPL source offer: the exact Wine source, every patch, the build scripts and the other sources' tarballs.
-    ( cd "$WORK" && tar -cf "$OUT/sources-$name.tar" downloads/*.tar* downloads/MoltenVK-macos.tar \
+    # LGPL source offer: Wine/Mono tarballs plus the exact patched DXMT tree, including its submodules.
+    # Patches and a Git URL alone do not include the corresponding DXMT source. Exclude Git metadata and the
+    # build marker, not source files. The other Git-fetched library sources are included too.
+    ( cd "$WORK" && tar --exclude=.git --exclude=.anvil-patched -cf "$OUT/sources-$name.tar" \
+        downloads/*.tar* src/dxmt src/Vulkan-Headers src/Vulkan-Loader \
         -C "$REPO" LICENSE README.md inputs.sh requirements.txt patches scripts .github )
     python3 "$REPO/scripts/manifest.py" "$pkg" "$OUT/$name.manifest.json"
     ( cd "$OUT" && shasum -a 256 "$name.tar.xz" "sources-$name.tar" "$name.manifest.json" ) > "$OUT/SHA256SUMS"

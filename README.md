@@ -9,7 +9,8 @@ used only to say what this build contains.
 
 **Source for every build.** Every published build comes with its full corresponding source, as the LGPL requires:
 `sources-<package>.tar`, published next to the package. It contains the exact Wine source tarball, every patch, the
-build scripts and the source tarballs of the other components.
+build scripts, the exact patched DXMT tree and its submodules, the Vulkan headers/loader sources, and the
+source tarballs of the other components. Git metadata is excluded.
 
 **Status:** experimental. Built packages are marked experimental and local-only in their manifest until they pass
 AnvilMac's acceptance tests. Nothing here is a release yet.
