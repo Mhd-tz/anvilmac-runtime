@@ -1,0 +1,165 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] wow64cpu: Use far returns for the 32/64-bit transitions under Rosetta 2.
+
+Under Rosetta 2 an indirect far jump (ljmp m16:32) between 32-bit and 64-bit code sometimes continues in the
+wrong mode, and the program faults at random. Example: after a return to 32-bit code, ntdll's 32-bit
+__wine_syscall bytes (FF 25 + absolute address) ran as a 64-bit RIP-relative jump; the computed address is exactly
+the reported bad read, with CS still the 64-bit selector. AnvilMac reproduced it on macOS 27.0.1 (Apple M2 Pro)
+with an original console/hidden-D3D9 probe containing no game code, and with SPORE (32-bit, D3D9) on new prefixes.
+CodeWeavers' CrossOver carries the same diagnosis ("CW HACK 20760: When running under Rosetta 2, use lretq instead
+of ljmp to work around a SIGUSR1 race condition") and enables its workaround only when the processor brand
+contains "VirtualApple"; this patch uses that detection and leaves every other host on the far jumps.
+
+Entry (32-bit code): push the 64-bit CS and target, then retf. Same 12-byte thunk; writes 8 bytes below the
+caller's Esp in 32-bit mode, so a stack fault there is an ordinary 32-bit exception.
+Return (64-bit code): the 16-byte lretq frame is written below the 32-bit Esp through %r14 while %rsp is still
+the 64-bit stack, then the stacks are swapped and lretq consumes it. Unlike CrossOver's sequence and AnvilMac's
+first local experiment, no instruction that can fault runs with %rsp on the 32-bit
+stack, so a guard-page growth is still handled silently and a stack overflow there unwinds through wow64's
+handler to the 32-bit program. Edx keeps its far-jump-path value; the reset-state iretq path is unchanged.
+
+Provenance (recorded by AnvilMac, 2026-10-23):
+  Base:     Wine wine-11.19, dlls/wow64cpu/cpu.c (SHA-256 ae1f73cdb282078c0f1872f26ac106be8e41830d87782a3f9629b127f6b7e6e8),
+            https://gitlab.winehq.org/wine/wine/-/blob/wine-11.19/dlls/wow64cpu/cpu.c; identical in Wine master
+            fetched 2026-10-23 (last change 9e03f332, 2026-03-06). No upstream fix exists.
+  Prior art: CodeWeavers CrossOver 26.3.0 source, sources/wine/dlls/wow64cpu/cpu.c (CW HACK 20760, is_rosetta2()),
+            https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz
+            (SHA-256 ac99c8ca4b3848f3e81784135f023df266b61c2345726ea55a50b3e030dd6872), LGPL-2.1-or-later.
+            Only the Rosetta detection approach is reused; the instruction sequences are AnvilMac's own.
+  Changes:  copyright 2026 Mahdi Taziki. License: LGPL-2.1-or-later (Wine).
+---
+diff --git a/dlls/wow64cpu/cpu.c b/dlls/wow64cpu/cpu.c
+--- a/dlls/wow64cpu/cpu.c
++++ b/dlls/wow64cpu/cpu.c
+@@ -39,6 +39,16 @@
+     DWORD addr;
+     WORD  cs;
+ };
++/* The same transition as a far return, for Rosetta 2 (see far_return_transitions). Same size. */
++struct thunk_32to64_retf
++{
++    BYTE  push_cs;   /* push imm32 */
++    DWORD cs;
++    BYTE  push_addr; /* push imm32 */
++    DWORD addr;
++    BYTE  retf;
++    BYTE  pad;
++};
+ struct thunk_opcodes
+ {
+     struct thunk_32to64 syscall_thunk;
+@@ -50,6 +60,10 @@
+ 
+ UINT cs32_sel = 0;
+ UINT ss32_sel = 0;
++/* Under Rosetta 2, an indirect far jump between 32-bit and 64-bit code sometimes continues in the wrong mode
++ * (32-bit code decoded as 64-bit, and the reverse), crashing 32-bit programs at random. Far returns don't, so
++ * both transitions use them there; other hosts keep the far jumps. */
++UINT far_return_transitions = 0;
+ 
+ static USHORT cs64_sel;
+ static USHORT ds64_sel;
+@@ -209,8 +223,19 @@
+                    "movl 0xbc(%r13),%edx\n\t"   /* context->SegCs */
+                    "movl %edx,4(%rsp)\n\t"
+                    "movl 0xc4(%r13),%r14d\n\t"  /* context->Esp */
++                   "cmpl $0,far_return_transitions(%rip)\n\t"
++                   "jne 1f\n\t"
+                    "xchgq %r14,%rsp\n\t"
+                    "ljmp *(%r14)\n"
++                   /* The far-return frame goes below the 32-bit Esp while %rsp is still the 64-bit stack, so a
++                    * stack fault there unwinds normally and reaches the 32-bit code as an exception. */
++                   "1:\tmovq %rdx,-8(%r14)\n\t"   /* SegCs, zero-extended */
++                   "movl 0xb8(%r13),%edx\n\t"   /* context->Eip */
++                   "movq %rdx,-16(%r14)\n\t"
++                   "subq $16,%r14\n\t"
++                   "movl 0xbc(%r13),%edx\n\t"   /* same Edx as the far jump path */
++                   "xchgq %r14,%rsp\n\t"
++                   "lretq\n"
+                    ".Lsyscall_32to64_return:\n\t"
+                    "movq %rsp,%r14\n\t"
+                    "movl 0xa8(%r13),%edx\n\t"   /* context->Edx */
+@@ -269,8 +294,19 @@
+                    "movl 0xbc(%r13),%edx\n\t"   /* context->SegCs */
+                    "movl %edx,4(%rsp)\n\t"
+                    "movl 0xc4(%r13),%r14d\n\t"  /* context->Esp */
++                   "cmpl $0,far_return_transitions(%rip)\n\t"
++                   "jne 1f\n\t"
+                    "xchgq %r14,%rsp\n\t"
+-                   "ljmp *(%r14)" )
++                   "ljmp *(%r14)\n"
++                   /* The far-return frame goes below the 32-bit Esp while %rsp is still the 64-bit stack, so a
++                    * stack fault there unwinds normally and reaches the 32-bit code as an exception. */
++                   "1:\tmovq %rdx,-8(%r14)\n\t"   /* SegCs, zero-extended */
++                   "movl 0xb8(%r13),%edx\n\t"   /* context->Eip */
++                   "movq %rdx,-16(%r14)\n\t"
++                   "subq $16,%r14\n\t"
++                   "movl 0xbc(%r13),%edx\n\t"   /* same Edx as the far jump path */
++                   "xchgq %r14,%rsp\n\t"
++                   "lretq" )
+ 
+ 
+ /**********************************************************************
+@@ -296,8 +332,40 @@
+                    "movl ss32_sel(%rip),%eax\n\t"
+                    "movl %eax,0xc8(%r13)\n\t"   /* context->SegSs */
+                    "jmp syscall_32to64_return\n" )
++
++
++/* Rosetta 2 reports this processor brand (as CrossOver's wow64cpu checks). */
++static BOOL is_rosetta(void)
++{
++    char brand[64] = {0};
+ 
++    if (NtQuerySystemInformation( SystemProcessorBrandString, brand, sizeof(brand) - 1, NULL )) return FALSE;
++    return strstr( brand, "VirtualApple" ) != NULL;
++}
+ 
++static void init_thunk( struct thunk_32to64 *thunk, void (WINAPI *target)(void) )
++{
++    if (far_return_transitions)
++    {
++        struct thunk_32to64_retf *retf = (struct thunk_32to64_retf *)thunk;
++
++        C_ASSERT( sizeof(*retf) == sizeof(*thunk) );
++        retf->push_cs   = 0x68;
++        retf->cs        = cs64_sel;
++        retf->push_addr = 0x68;
++        retf->addr      = PtrToUlong( target );
++        retf->retf      = 0xcb;
++        retf->pad       = 0x90;
++        return;
++    }
++    thunk->ljmp  = 0xff;
++    thunk->modrm = 0x2d;
++    thunk->op    = PtrToUlong( &thunk->addr );
++    thunk->addr  = PtrToUlong( target );
++    thunk->cs    = cs64_sel;
++}
++
++
+ /**********************************************************************
+  *           BTCpuProcessInit  (wow64cpu.@)
+  */
+@@ -335,18 +403,10 @@
+     cs32_sel = context_i386.SegCs;
+     ss32_sel = context_i386.SegSs;
+ 
+-    thunk->syscall_thunk.ljmp  = 0xff;
+-    thunk->syscall_thunk.modrm = 0x2d;
+-    thunk->syscall_thunk.op    = PtrToUlong( &thunk->syscall_thunk.addr );
+-    thunk->syscall_thunk.addr  = PtrToUlong( syscall_32to64 );
+-    thunk->syscall_thunk.cs    = cs64_sel;
++    far_return_transitions = is_rosetta();
++    init_thunk( &thunk->syscall_thunk, syscall_32to64 );
++    init_thunk( &thunk->unix_thunk, unix_call_32to64 );
+ 
+-    thunk->unix_thunk.ljmp  = 0xff;
+-    thunk->unix_thunk.modrm = 0x2d;
+-    thunk->unix_thunk.op    = PtrToUlong( &thunk->unix_thunk.addr );
+-    thunk->unix_thunk.addr  = PtrToUlong( unix_call_32to64 );
+-    thunk->unix_thunk.cs    = cs64_sel;
+-
+     NtProtectVirtualMemory( GetCurrentProcess(), (void **)&thunk, &size, PAGE_EXECUTE_READ, &old_prot );
+     return STATUS_SUCCESS;
+ }
