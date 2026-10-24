@@ -1,0 +1,119 @@
+Provenance (recorded by AnvilMac, 2026-10-19):
+  Local patch for DXMT v0.80 (589adb780354b461645b29999cefaf533594ee99), after patches 0001-0003.
+  DXMT's GetAdapterLuid uses byte-swapped Metal registryID. Wine 11.19 instead allocates/restores a GPU LUID
+  in dlls/win32u/sysparams.c:add_gpu and returns it through D3DKMTEnumAdapters2. The IDs differ on the tested
+  M2 Pro, so DXGI and Wine display enumeration disagree even with EnumAdapterByLuid implemented.
+  Upstream checked 2026-10-19: https://github.com/3Shain/dxmt at 50102f994b406f58f56d5d09f2ad20f9b90390a2
+  still derives the LUID from registryID; adapter history and LUID/D3DKMT commit searches found no fix.
+  Use Wine's nonzero LUID only when Metal and D3DKMT each expose exactly one adapter. Retain the original
+  ID on ambiguous/failed enumeration. Cache the ID for both the D3DKMT handle and every DXGI description.
+  Close the temporary enumeration handle. No Wine or Apple code is changed. Turbines needs a window test;
+  fixing the ID mismatch alone is not proof that its IsSet assertion is fixed.
+  ABI declarations follow Wine 11.19 include/ddk/d3dkmthk.h (LGPL-2.1-or-later),
+  Copyright 2016 Henri Verbeet for CodeWeavers:
+  https://gitlab.winehq.org/wine/wine/-/blob/wine-11.19/include/ddk/d3dkmthk.h
+  License: LGPL-2.1-or-later. Local implementation Copyright 2026 Mahdi Taziki.
+  Added for candidate 11.19-4; not an upstream commit.
+
+Subject: [PATCH] dxgi: use Wine's LUID for an unambiguous single GPU
+
+diff --git a/src/dxgi/dxgi_adapter.cpp b/src/dxgi/dxgi_adapter.cpp
+--- a/src/dxgi/dxgi_adapter.cpp
++++ b/src/dxgi/dxgi_adapter.cpp
+@@ -14,16 +14,30 @@
+ Com<IDXGIOutput> CreateOutput(IMTLDXGIAdapter *pAadapter, HMONITOR monitor, DxgiOptions &options);
+ 
+ LUID GetAdapterLuid(WMT::Device device) {
+-    // NOTE: use big-endian registryID, be consistent with MVK
+-  return std::bit_cast<LUID>(__builtin_bswap64(device.registryID()));
++  // Wine assigns its own LUID, unrelated to Metal's registryID. Only map by count
++  // when both APIs expose exactly one GPU; never guess on a multi-GPU system.
++  LUID luid = std::bit_cast<LUID>(__builtin_bswap64(device.registryID()));
++  if (WMT::CopyAllDevices().count() != 1)
++    return luid;
++
++  D3DKMT_ADAPTERINFO adapter = {};
++  D3DKMT_ENUMADAPTERS2 adapters = {1, &adapter};
++  if (!D3DKMTEnumAdapters2(&adapters) && adapters.NumAdapters == 1) {
++    if (adapter.AdapterLuid.LowPart || adapter.AdapterLuid.HighPart)
++      luid = adapter.AdapterLuid;
++    D3DKMT_CLOSEADAPTER close = {adapter.hAdapter};
++    if (D3DKMTCloseAdapter(&close))
++      WARN("Failed to close enumerated D3DKMT adapter");
++  }
++  return luid;
+ }
+ 
+ class MTLDXGIAdapter : public MTLDXGIObject<IMTLDXGIAdapter> {
+ public:
+   MTLDXGIAdapter(WMT::Device device, IDXGIFactory *factory, Config &config)
+-      : device_(device), factory_(factory), options_(config) {
++      : device_(device), adapter_luid_(GetAdapterLuid(device)), factory_(factory), options_(config) {
+     D3DKMT_OPENADAPTERFROMLUID open = {};
+-    open.AdapterLuid = GetAdapterLuid(device_);
++    open.AdapterLuid = adapter_luid_;
+     if (D3DKMTOpenAdapterFromLuid(&open))
+       WARN("Failed to open D3DKMT adapter");
+     else
+@@ -171,7 +185,7 @@
+       pDesc->DedicatedVideoMemory = device_.recommendedMaxWorkingSetSize();
+     pDesc->DedicatedSystemMemory = 0;
+     pDesc->SharedSystemMemory = 0;
+-    pDesc->AdapterLuid = GetAdapterLuid(device_);
++    pDesc->AdapterLuid = adapter_luid_;
+     pDesc->Flags = DXGI_ADAPTER_FLAG3_NONE;
+     pDesc->GraphicsPreemptionGranularity = DXGI_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
+     pDesc->ComputePreemptionGranularity = DXGI_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
+@@ -274,6 +288,7 @@
+ private:
+   WMT::Reference<WMT::Device> device_;
+   D3DKMT_HANDLE local_kmt_ = 0;
++  LUID adapter_luid_;
+   Com<IDXGIFactory> factory_;
+   DxgiOptions options_;
+   uint64_t mem_reserved_[2] = {0, 0};
+diff --git a/src/util/util_d3dkmt.h b/src/util/util_d3dkmt.h
+--- a/src/util/util_d3dkmt.h
++++ b/src/util/util_d3dkmt.h
+@@ -98,6 +98,21 @@
+ {
+   D3DKMT_HANDLE hSyncObject;
+ } D3DKMT_DESTROYSYNCHRONIZATIONOBJECT;
++
++// D3DKMT enumeration ABI from Wine 11.19 include/ddk/d3dkmthk.h (LGPL-2.1-or-later).
++typedef struct _D3DKMT_ADAPTERINFO
++{
++  D3DKMT_HANDLE hAdapter;
++  LUID AdapterLuid;
++  ULONG NumOfSources;
++  BOOL bPrecisePresentRegionsPreferred;
++} D3DKMT_ADAPTERINFO;
++
++typedef struct _D3DKMT_ENUMADAPTERS2
++{
++  ULONG NumAdapters;
++  D3DKMT_ADAPTERINFO *pAdapters;
++} D3DKMT_ENUMADAPTERS2;
+ 
+ typedef struct _D3DKMT_OPENADAPTERFROMLUID
+ {
+@@ -477,6 +492,7 @@
+ 
+ extern "C"
+ {
++  DECLSPEC_IMPORT NTSTATUS WINAPI D3DKMTEnumAdapters2(D3DKMT_ENUMADAPTERS2 *desc);
+   DECLSPEC_IMPORT NTSTATUS WINAPI D3DKMTCreateDevice(D3DKMT_CREATEDEVICE *desc);
+   DECLSPEC_IMPORT NTSTATUS WINAPI D3DKMTDestroyAllocation(const D3DKMT_DESTROYALLOCATION *desc);
+   DECLSPEC_IMPORT NTSTATUS WINAPI D3DKMTDestroyDevice(const D3DKMT_DESTROYDEVICE *desc);
+@@ -502,6 +518,11 @@
+ 
+ extern "C"
+ {
++  inline NTSTATUS D3DKMTEnumAdapters2(D3DKMT_ENUMADAPTERS2 *desc) {
++    dxmt::Logger::warn("D3DKMTEnumAdapters2 not implemented.");
++    return -1;
++  }
++
+   inline NTSTATUS D3DKMTCreateDevice(D3DKMT_CREATEDEVICE *desc) {
+     dxmt::Logger::warn("D3DKMTCreateDevice not implemented");
+     return -1;

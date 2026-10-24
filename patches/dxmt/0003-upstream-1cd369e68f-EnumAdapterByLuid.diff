@@ -1,0 +1,48 @@
+Provenance (recorded by AnvilMac, 2026-10-19):
+  DXMT upstream commit 1cd369e68fc3fd311fa288a3a74c971d37150495 (https://github.com/3Shain/dxmt, main, 2026-07-07,
+  Feifan He): implements IDXGIFactory4::EnumAdapterByLuid (v0.80 returns DXGI_ERROR_NOT_FOUND). Unreal Engine 5's
+  D3D11 RHI looks its adapter up by LUID; Development builds then assert "IsSet() Optional.h:364" (Irreplaceable
+  Turbines, 2026-10-19). Applies without fuzz after patches 0001-0002.
+  License: LGPL-2.1-or-later (DXMT changes after v0.80). Applied verbatim. Added in release 11.19-3.
+
+From 1cd369e68fc3fd311fa288a3a74c971d37150495 Mon Sep 17 00:00:00 2001
+From: Feifan He <feifan@codeweavers.com>
+Date: Tue, 7 Jul 2026 12:39:09 +0800
+Subject: [PATCH] feat(dxgi): implement `EnumAdapterByLuid()`
+
+Signed-off-by: Feifan He <feifan@codeweavers.com>
+---
+ src/dxgi/dxgi_factory.cpp | 20 ++++++++++++++++----
+ 1 file changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/src/dxgi/dxgi_factory.cpp b/src/dxgi/dxgi_factory.cpp
+index 8f0ccfaf1..99a3f90a1 100644
+--- a/src/dxgi/dxgi_factory.cpp
++++ b/src/dxgi/dxgi_factory.cpp
+@@ -256,10 +256,22 @@ class MTLDXGIFactory : public MTLDXGIObject<IDXGIFactory6> {
+ 
+   UINT STDMETHODCALLTYPE GetCreationFlags() override { return flags_; }
+ 
+-  HRESULT STDMETHODCALLTYPE EnumAdapterByLuid(LUID luid, REFIID iid,
+-                                              void **adapter) override {
+-    ERR("DXGIFactory::EnumAdapterByLuid: not implemented");
+-    return DXGI_ERROR_NOT_FOUND;
++  HRESULT STDMETHODCALLTYPE EnumAdapterByLuid(LUID luid, REFIID riid,
++                                              void **ppAdapter) override {
++    InitReturnPtr(ppAdapter);
++
++    // luid ignored, since Apple Silicon has only 1 GPU anyway
++    Com<IDXGIAdapter1> adapter;
++    HRESULT hr = this->EnumAdapters1(0, &adapter);
++    if (FAILED(hr))
++      return hr;
++
++    DXGI_ADAPTER_DESC desc;
++    adapter->GetDesc(&desc);
++    if (desc.AdapterLuid.HighPart != luid.HighPart || desc.AdapterLuid.LowPart != luid.LowPart)
++      WARN("EnumAdapterByLuid: returning an adapter with mismatched luid");
++
++    return adapter->QueryInterface(riid, ppAdapter);
+   }
+ 
+   HRESULT STDMETHODCALLTYPE EnumWarpAdapter(REFIID iid,

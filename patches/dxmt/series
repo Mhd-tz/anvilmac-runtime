@@ -1,5 +1,11 @@
 # Applied in order with 'git apply' on DXMT v0.80 (589adb78).
 # 0001: PR #166 head a1aa73fd (3Shain/dxmt), "feat(d3d11): implement getting Metal layer from HWND via ExtEscape" (LGPL-2.1+ changes).
 # 0002: upstream main commit 06065754af91352caaf8db87d4566fecc4124552, fixes air_tessellation.metal with Xcode 27's Metal toolchain.
+# 0003: upstream main commit 1cd369e68fc3fd311fa288a3a74c971d37150495, implements IDXGIFactory4::EnumAdapterByLuid.
 0001-pr166-a1aa73fd8a85-ExtEscape-metal-layer.diff
 0002-upstream-06065754af91-metal-compile-fix.diff
+0003-upstream-1cd369e68f-EnumAdapterByLuid.diff
+# 0004: local single-GPU Wine LUID lookup; upstream still uses Metal registryID. LGPL-2.1+.
+0004-wine-single-gpu-luid.diff
+# 0005: publish CPU timestamp readback before D3D11 event completion. Local LGPL-2.1+.
+0005-query-readback-before-event.diff
