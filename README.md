@@ -16,6 +16,17 @@ source tarballs of the other components. Git metadata is excluded.
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2` and, current since 2026-10-25, `runtime-wine-11.19-7`.
 
+## 11.19-9 candidate
+
+This branch combines the fullscreen cursor correction from the accepted 11.19-8 candidate with a general
+WoW64 OpenGL shadow-buffer optimization (Wine patch 0010). For explicit-flush write maps, only flushed ranges
+are copied to the host buffer; readable and implicit-flush maps keep their preservation behavior. The change
+has no game-name checks. The 11.19-7 far-return and DXMT fixes remain included.
+
+Local buffer checks and owner gameplay support testing this candidate, but do not establish acceptance of its
+CI package or a speedup for every game. The exact CI artifact must pass regression checks before release.
+11.19-7 remains the current release. The manifest now also checks the hash of `opengl32.so` before launch.
+
 ## What it builds
 
 | Component | Version | Notes |

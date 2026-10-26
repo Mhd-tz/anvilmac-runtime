@@ -8,3 +8,4 @@
 0007-ntdll-Search-the-D3DMetal-toolkit-DLL-folder-first-when-requested.patch
 0008-ntdll-Keep-the-old-macOS-gs-model-in-D3DMetal-processes.patch
 0009-wow64cpu-Use-far-returns-for-the-32-64-bit-transitions-under-Rosetta-2.patch
+0010-opengl32-Flush-only-explicit-WoW64-shadow-map-ranges.patch

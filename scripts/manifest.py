@@ -23,7 +23,7 @@ def sha(rel):
 
 key_files = ["bin/wine", "bin/wineserver",
              "lib/wine/x86_64-unix/ntdll.so", "lib/wine/x86_64-unix/win32u.so", "lib/wine/x86_64-unix/winemac.so",
-             "lib/wine/x86_64-unix/winemetal.so",
+             "lib/wine/x86_64-unix/winemetal.so", "lib/wine/x86_64-unix/opengl32.so",
              "lib/libfreetype.6.dylib", "lib/libvulkan.1.dylib", "lib/libMoltenVK.dylib",
              "share/vulkan/icd.d/MoltenVK_icd.json"]
 key_files += [f"lib/wine/{a}-windows/{d}.dll" for a in ("x86_64", "i386")

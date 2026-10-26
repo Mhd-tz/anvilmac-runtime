@@ -1,0 +1,69 @@
+Subject: [LOCAL CANDIDATE] opengl32: flush only explicit WoW64 shadow-map ranges.
+Author: AnvilMac contributors (Codex-assisted), 2026-10-26
+Licence: LGPL-2.1-or-later, same as Wine dlls/opengl32/unix_wgl.c.
+Provenance: original local change against Wine 11.19 (source tarball
+73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f).
+Not an upstream commit; not submitted or released.
+
+The high-address fallback currently copies whole buffers at map and unmap,
+including explicit-flush write maps. Copy explicit ranges before forwarding
+glFlushMappedBufferRange, and omit whole-map copies for write-only explicit
+maps. Keep implicit-flush and readable-map preservation. Bounds checks avoid
+copying invalid ranges before the host GL implementation reports the error.
+
+Reference: Khronos glMapBufferRange / glFlushMappedBufferRange specifications.
+https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMapBufferRange.xhtml
+https://registry.khronos.org/OpenGL-Refpages/gl4/html/glFlushMappedBufferRange.xhtml
+---
+--- a/dlls/opengl32/unix_wgl.c
++++ b/dlls/opengl32/unix_wgl.c
+@@ -62,6 +62,8 @@
+     void *host_ptr;
+     void *map_ptr;
+     size_t copy_length;
++    size_t map_length;
++    BOOL explicit_flush;
+     void *vm_ptr;
+     SIZE_T vm_size;
+     BOOL pinned;
+@@ -1339,7 +1341,14 @@
+     };
+     VkResult vr;
+ 
+-    if (!buffer->vk_memory) return;
++    if (!buffer->vk_memory)
++    {
++        /* Copy shadow data before the driver flushes the requested range. */
++        if (buffer->explicit_flush && buffer->map_ptr && buffer->host_ptr
++                && offset <= buffer->map_length && length <= buffer->map_length - offset)
++            memcpy( (char *)buffer->host_ptr + offset, (char *)buffer->map_ptr + offset, length );
++        return;
++    }
+ 
+     vr = buffer->vk_device->p_vkFlushMappedMemoryRanges( buffer->vk_device->vk_device, 1, &memory_range );
+     if (vr) ERR( "vkFlushMappedMemoryRanges failed: %x\n", vr );
+@@ -1556,8 +1565,13 @@
+ 
+     if (!buffer_vm_alloc( teb, buffer, length + (offset & 0xf) )) goto unmap;
+     buffer->map_ptr = (char *)buffer->vm_ptr + (offset & 0xf);
+-    buffer->copy_length = (access & GL_MAP_WRITE_BIT) ? length : 0;
+-    if (!(access & (GL_MAP_INVALIDATE_RANGE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT)))
++    buffer->map_length = length;
++    buffer->explicit_flush = !!(access & GL_MAP_FLUSH_EXPLICIT_BIT);
++    buffer->copy_length = (access & GL_MAP_WRITE_BIT) && !buffer->explicit_flush ? length : 0;
++    /* An explicit write-only map uploads only the ranges the caller flushes.
++     * It never reads shadow contents or copies untouched bytes back on unmap. */
++    if (!(access & (GL_MAP_INVALIDATE_RANGE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT))
++            && ((access & GL_MAP_READ_BIT) || !buffer->explicit_flush))
+     {
+         static int once;
+         if (!once++)
+@@ -1732,6 +1746,8 @@
+     }
+ 
+     buffer->host_ptr = buffer->map_ptr = NULL;
++    buffer->map_length = 0;
++    buffer->explicit_flush = FALSE;
+     return TRUE;
+ }
+ 
