@@ -1,0 +1,142 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] winemac: Hide the Dock and menu bar while an active window is fullscreen; reassert a hidden cursor only after a screen edge.
+
+Replaces "Reassert the hidden cursor on movement in an active fullscreen window" (runtime patch 0005, 2026-10-16).
+That change balanced the hide with [NSCursor unhide] and hid again on EVERY mouse move in an active fullscreen window
+whose client hid the cursor, so the system arrow flickered while the mouse moved (Unity 2019.4 and Unity 6 games
+in mouse-look, 2026-10-26). The extra arrow it fixed came from native screen-edge UI (Dock reveal at the bottom
+edge). Now:
+- while the application is active and one of its windows covers a screen (the same "fullscreen" test winemac
+  already uses), the Dock and the menu bar are hidden (NSApplicationPresentationHideDock | HideMenuBar), so an edge
+  can't reveal them; the previous options are restored when no window is fullscreen or the app is deactivated;
+- a hidden cursor is reasserted once, when the pointer comes back from a screen edge, never on ordinary movement.
+Supported AppKit API only (NSApplication presentationOptions, NSCursor hide/unhide balanced).
+
+Provenance (recorded by AnvilMac, 2026-10-26):
+  Written for AnvilMac by Claude Code; not submitted upstream.
+  Base: wine-11.19, commit 455e3509b98a. File: dlls/winemac.drv/cocoa_app.m (Wine, LGPL-2.1-or-later).
+  License of this change: LGPL-2.1-or-later. Copyright 2026 Mahdi Taziki.
+  Checked: the project owner confirmed the flicker gone in both games on a local build of this change
+  (2026-10-26). Wider checks (Mothville's bottom edge, multiple displays) pending.
+
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -60,6 +60,60 @@
+ 
+ @end
+ #endif
++
++
++/* Fullscreen presentation (AnvilMac): while an active Wine window covers a screen, the Dock and the menu bar stay
++   hidden, so reaching a screen edge can't reveal them (and the system arrow with them) over a game that hid the
++   cursor. The options in effect before are restored afterwards. */
++static BOOL fullscreenPresentationApplied;
++static NSApplicationPresentationOptions presentationOptionsBeforeFullscreen;
++
++/* The pointer reached a screen edge while a fullscreen window had the cursor hidden. */
++static BOOL pointerVisitedScreenEdge;
++
++static BOOL point_at_screen_edge(NSPoint point)
++{
++    for (NSScreen* screen in [NSScreen screens])
++    {
++        NSRect frame = [screen frame];
++        if (NSPointInRect(point, frame))
++            return !NSPointInRect(point, NSInsetRect(frame, 2, 2));
++    }
++    return FALSE;
++}
++
++static void update_fullscreen_presentation(BOOL anyFullscreen)
++{
++    const NSApplicationPresentationOptions hide = NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar;
++
++    if (anyFullscreen && !fullscreenPresentationApplied)
++    {
++        NSApplicationPresentationOptions current = [NSApp presentationOptions];
++        @try
++        {
++            [NSApp setPresentationOptions:(current & ~(NSApplicationPresentationAutoHideDock |
++                                                        NSApplicationPresentationAutoHideMenuBar)) | hide];
++            presentationOptionsBeforeFullscreen = current;
++            fullscreenPresentationApplied = TRUE;
++        }
++        @catch (NSException* e)
++        {
++            /* Options that can't be combined (e.g. a window in native full screen): leave them as they are. */
++        }
++    }
++    else if (!anyFullscreen && fullscreenPresentationApplied)
++    {
++        @try
++        {
++            [NSApp setPresentationOptions:presentationOptionsBeforeFullscreen];
++        }
++        @catch (NSException* e)
++        {
++            [NSApp setPresentationOptions:NSApplicationPresentationDefault];
++        }
++        fullscreenPresentationApplied = FALSE;
++    }
++}
+ 
+ 
+ /***********************************************************************
+@@ -702,9 +756,10 @@
+ 
+     - (void) updateFullscreenWindows
+     {
+-        if (capture_displays_for_fullscreen && [NSApp isActive])
++        BOOL anyFullscreen = FALSE;
++
++        if ([NSApp isActive])
+         {
+-            BOOL anyFullscreen = FALSE;
+             NSNumber* windowNumber;
+             for (windowNumber in [NSWindow windowNumbersWithOptions:0])
+             {
+@@ -715,7 +770,12 @@
+                     break;
+                 }
+             }
++        }
++
++        update_fullscreen_presentation(anyFullscreen);
+ 
++        if (capture_displays_for_fullscreen && [NSApp isActive])
++        {
+             if (anyFullscreen)
+             {
+                 if ([self areDisplaysCaptured] || CGCaptureAllDisplays() == CGDisplayNoErr)
+@@ -1468,6 +1528,22 @@
+         }
+         else
+             lastTargetWindow = nil;
++
++        /* Native screen-edge UI can reveal the cursor while our cache still says it is hidden. Reassert the hide once,
++           when the pointer comes back from an edge; never on ordinary movement, where unhide-then-hide flickers. */
++        if (lastTargetWindow.fullscreen && [NSApp isActive] && clientWantsCursorHidden && cursorHidden)
++        {
++            if (point_at_screen_edge([NSEvent mouseLocation]))
++                pointerVisitedScreenEdge = TRUE;
++            else if (pointerVisitedScreenEdge)
++            {
++                pointerVisitedScreenEdge = FALSE;
++                [NSCursor unhide];
++                cursorHidden = FALSE;
++            }
++        }
++        else
++            pointerVisitedScreenEdge = FALSE;
+ 
+         [self updateCursor:FALSE];
+     }
+@@ -2240,6 +2316,8 @@
+         WineEventQueue* queue;
+ 
+         [self invalidateGotFocusEvents];
++        update_fullscreen_presentation(FALSE);
++        pointerVisitedScreenEdge = FALSE;
+ 
+         event = macdrv_create_event(APP_DEACTIVATED, nil);
+ 
