@@ -14,24 +14,22 @@ source tarballs of the other components. Git metadata is excluded.
 
 **Status:** experimental. Built packages are marked experimental and local-only in their manifest until they pass
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
-`runtime-wine-11.19-1`, `runtime-wine-11.19-2` and, current since 2026-10-25, `runtime-wine-11.19-7`.
+`runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7` and, current since 2026-10-26, `runtime-wine-11.19-9`.
 
-## 11.19-9 candidate
+## 11.19-9 (released 2026-10-26)
 
-This branch combines the fullscreen cursor correction from the accepted 11.19-8 candidate with a general
-WoW64 OpenGL shadow-buffer optimization (Wine patch 0010). For explicit-flush write maps, only flushed ranges
-are copied to the host buffer; readable and implicit-flush maps keep their preservation behavior. The change
-has no game-name checks. The 11.19-7 far-return and DXMT fixes remain included.
-
-Local buffer checks and owner gameplay support testing this candidate, but do not establish acceptance of its
-CI package or a speedup for every game. The exact CI artifact must pass regression checks before release.
-11.19-7 remains the current release. The manifest now also checks the hash of `opengl32.so` before launch.
+11.19-9 combines the fullscreen cursor correction first built as the 11.19-8 candidate (not released on its own) with a
+general WoW64 OpenGL shadow-buffer optimization (Wine patch 0010). For explicit-flush write maps, only flushed ranges
+are copied to the host buffer; readable and implicit-flush maps keep their preservation behavior. The change has no
+game-name checks. The 11.19-7 far-return and DXMT fixes remain included. Released by `release.yml` from build run
+40418867481 after AnvilMac's acceptance (no-window checks, window batch, owner sessions); a speedup for every game is
+not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 
 ## What it builds
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (11.19-8 candidate; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both and is released; 11.19-8 is 11.19-7 with the new cursor change, acceptance pending |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization and is the current release |
 | DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5) |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
