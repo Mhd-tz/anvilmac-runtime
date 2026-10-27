@@ -37,9 +37,12 @@ timed() { # timed <label> <command…>: logged to logs/<label>.log, wall time an
     echo "$label: exit $rc after $(( $(date +%s) - t0 ))s (logs/$label.log)"
     [ $rc = 0 ] || { tail -20 "$LOGS/$label.log" >&2; fail "$label"; }
 }
-fetch_file() { # fetch_file <url> <sha256> -> path
-    local f="$DL/$(basename "$1")" got
-    [ -f "$f" ] || curl -fL -sS --retry 3 -o "$f" "$1" || fail "download $1"
+fetch_file() { # fetch_file <url> <sha256> [mirror url…] -> path; any mirror must deliver the same file (same checksum)
+    local f="$DL/$(basename "$1")" got u
+    if [ ! -f "$f" ]; then
+        for u in "$1" "${@:3}"; do curl -fL -sS --retry 3 -o "$f" "$u" && break; rm -f "$f"; done
+        [ -f "$f" ] || fail "download $1"
+    fi
     got="$(shasum -a 256 "$f" | cut -d' ' -f1)"
     [ "$got" = "$2" ] || fail "checksum mismatch for $(basename "$f"): got $got, expected $2"
     echo "$f"
@@ -57,7 +60,7 @@ fetch() {
     fetch_file "$MINGW_WINE_URL" "$MINGW_WINE_SHA" >/dev/null
     fetch_file "$MINGW_DXMT_URL" "$MINGW_DXMT_SHA" >/dev/null
     fetch_file "$BISON_URL" "$BISON_SHA" >/dev/null
-    fetch_file "$FREETYPE_URL" "$FREETYPE_SHA" >/dev/null
+    fetch_file "$FREETYPE_URL" "$FREETYPE_SHA" "$FREETYPE_MIRROR" >/dev/null
     fetch_file "$MOLTENVK_URL" "$MOLTENVK_SHA" >/dev/null
     fetch_file "$SHAIN_WINE_URL" "$SHAIN_WINE_SHA" >/dev/null
     fetch_file "$WINE_MONO_URL" "$WINE_MONO_SHA" >/dev/null

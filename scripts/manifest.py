@@ -82,6 +82,9 @@ m = {
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
     # GStreamer (winegstreamer): only the runtime's own plugins; the plugin registry in the game's prefix, never the
     # user's home folder (@prefix needs AnvilMac with prefix substitution, 2026-10-27).
+    # Video containers winegstreamer plays here (H.264/HEVC/MPEG-2 through VideoToolbox, AAC/MP3 through AudioToolbox);
+    # AnvilMac warns before Play about a game's other video files (Windows Media, WebM).
+    "videoFormats": ["mp4", "m4v", "mov"],
     "launchEnvironment": {"VK_DRIVER_FILES": "@root/share/vulkan/icd.d/MoltenVK_icd.json",
                           "GST_PLUGIN_SYSTEM_PATH_1_0": "@root/lib/gstreamer-1.0",
                           "GST_PLUGIN_SCANNER_1_0": "@root/libexec/gstreamer-1.0/gst-plugin-scanner",

@@ -31,6 +31,7 @@ SHAIN_WINE_SHA=289c7f19e270a3d3d0a6fdb07691b176c70a0795f6811e5255cba82425de4f10
 # FreeType: Wine's font back end (Gcenx configures --with-freetype). Checksum: FreeType 2.13.3 release announcement.
 FREETYPE_URL=https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz
 FREETYPE_SHA=0550350666d427c74daeb85d5ac7bb353acba5f76956395995311a9c6f063289
+FREETYPE_MIRROR=https://downloads.sourceforge.net/project/freetype/freetype2/2.13.3/freetype-2.13.3.tar.xz   # official mirror; same checksum required
 # Khronos Vulkan loader + headers (Apache-2.0): win32u.so loads libvulkan.1.dylib, which loads the driver named by
 # VK_DRIVER_FILES (AnvilMac sets it per launch; the runtime's default is MoltenVK).
 VULKAN_LOADER_REPO=https://github.com/KhronosGroup/Vulkan-Loader.git
