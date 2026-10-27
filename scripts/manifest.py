@@ -25,7 +25,8 @@ key_files = ["bin/wine", "bin/wineserver",
              "lib/wine/x86_64-unix/ntdll.so", "lib/wine/x86_64-unix/win32u.so", "lib/wine/x86_64-unix/winemac.so",
              "lib/wine/x86_64-unix/winemetal.so", "lib/wine/x86_64-unix/opengl32.so",
              "lib/libfreetype.6.dylib", "lib/libvulkan.1.dylib", "lib/libMoltenVK.dylib",
-             "share/vulkan/icd.d/MoltenVK_icd.json"]
+             "share/vulkan/icd.d/MoltenVK_icd.json",
+             "lib/wine/x86_64-unix/winegstreamer.so", "lib/libgstreamer-1.0.0.dylib", "lib/libglib-2.0.0.dylib"]
 key_files += [f"lib/wine/{a}-windows/{d}.dll" for a in ("x86_64", "i386")
               for d in ("d3d11", "dxgi", "d3d10core", "winemetal", "user32", "win32u")]
 missing = [f for f in key_files if not os.path.exists(os.path.join(root, f))]
@@ -50,7 +51,7 @@ m = {
         "sha256": "0" * 64,
         "sourceCode": "sources-<package>.tar, published with the package (inputs.sh, patches, scripts, source tarballs)",
         "license": "LGPL-2.1-or-later (Wine); DXMT v0.80 MIT + LGPL-2.1-or-later changes; MoltenVK and the Vulkan loader "
-                   "Apache-2.0; FreeType FTL",
+                   "Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause",
     },
     "host": {"architecture": "x86_64", "translation": "rosetta2", "minimumMacOS": "15.0", "testedMacOS": []},
     "layout": {"root": "Contents/Resources/wine", "wine": "bin/wine", "wineserver": "bin/wineserver"},
@@ -79,7 +80,12 @@ m = {
     # patches/wine/0003: runtime HLSL compiles log begin/end on the "shadertime" channel (off unless WINEDEBUG enables it).
     "diagnostics": ["shader-compile-timing"],
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
-    "launchEnvironment": {"VK_DRIVER_FILES": "@root/share/vulkan/icd.d/MoltenVK_icd.json"},
+    # GStreamer (winegstreamer): only the runtime's own plugins; the plugin registry in the game's prefix, never the
+    # user's home folder (@prefix needs AnvilMac with prefix substitution, 2026-10-27).
+    "launchEnvironment": {"VK_DRIVER_FILES": "@root/share/vulkan/icd.d/MoltenVK_icd.json",
+                          "GST_PLUGIN_SYSTEM_PATH_1_0": "@root/lib/gstreamer-1.0",
+                          "GST_PLUGIN_SCANNER_1_0": "@root/libexec/gstreamer-1.0/gst-plugin-scanner",
+                          "GST_REGISTRY_1_0": "@prefix/gstreamer-1.0-registry.x86_64.bin"},
 }
 json.dump(m, open(out, "w"), indent=2)
 print(out)

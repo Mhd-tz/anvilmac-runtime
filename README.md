@@ -16,6 +16,12 @@ source tarballs of the other components. Git metadata is excluded.
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7` and, current since 2026-10-26, `runtime-wine-11.19-9`.
 
+## 11.19-10 candidate
+
+11.19-9 plus video in games: Wine is built with GStreamer support and the package carries a minimal GStreamer 1.28.8
+that decodes with macOS's own codecs. Without it, games that play videos through Media Foundation or DirectShow showed
+black for each video's length (Unruly Heroes, 2026-10-27). Not a release until it passes AnvilMac's acceptance.
+
 ## 11.19-9 (released 2026-10-26)
 
 11.19-9 combines the fullscreen cursor correction first built as the 11.19-8 candidate (not released on its own) with a
@@ -35,6 +41,7 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
 | FreeType | 2.13.3 | Wine's font back end |
 | Wine Mono | 11.3.0 | .NET for Windows programs; the unmodified upstream release that Wine 11.19 asks for, in `share/wine/mono`. Wine Gecko is not bundled. |
+| GStreamer | 1.28.8 | Video in games: Wine's winegstreamer (Media Foundation, DirectShow) decodes through macOS's own codecs: VideoToolbox (H.264, HEVC, MPEG-2) and AudioToolbox (AAC, MP3), with the MP4 and Matroska/WebM demuxers; only the needed plugins, no GPL plugins, no FFmpeg. GLib 2.86.3, libffi, PCRE2 and proxy-libintl from GStreamer's pinned wraps. LGPL-2.1-or-later (GStreamer, GLib, proxy-libintl), MIT (libffi), BSD-3-Clause (PCRE2); full sources in the source archive. From 11.19-10. |
 
 **Apple's D3DMetal is not part of this runtime.** Patches 0006-0008 only let Wine load a copy of Apple's Game Porting
 Toolkit that the user downloaded from Apple and imported into AnvilMac; AnvilMac verifies Apple's signature before

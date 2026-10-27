@@ -58,10 +58,17 @@ DXMT_REPO=https://github.com/3Shain/dxmt.git
 DXMT_TAG=v0.80
 DXMT_COMMIT=589adb780354b461645b29999cefaf533594ee99      # v0.80 = MIT; patches/dxmt adds LGPL-2.1+ changes (#166)
 
+# --- GStreamer (video in games: Wine's winegstreamer, decoding with macOS's own codecs) ----------------------------------
+# Monorepo tag; GLib, libffi, PCRE2 and proxy-libintl come from its pinned wrap files (meson verifies each download's
+# hash). Only the plugins Wine and game videos need are built (scripts/build.sh gstreamer); gpl stays disabled.
+GST_REPO=https://gitlab.freedesktop.org/gstreamer/gstreamer.git
+GST_TAG=1.28.8
+GST_COMMIT=1b2a95a1b72787cda146b46df9605b168e5b683b       # LGPL-2.1-or-later
+
 # --- Build settings ----------------------------------------------------------------------------------------------------
 MACOSX_DEPLOYMENT_TARGET=10.15                             # as Gcenx's builds
 # The release number is part of the package folder name and the manifest id, so two releases of the same Wine version
 # can be installed side by side (games pinned to the older one keep working).
-RUNTIME_RELEASE=9
+RUNTIME_RELEASE=10
 RUNTIME_ID=anvilmac-wine-11.19-$RUNTIME_RELEASE-dxmt-0.80-x86_64
 RUNTIME_NAME="AnvilMac Runtime 11.19-$RUNTIME_RELEASE (Wine 11.19 + DXMT 0.80)"
