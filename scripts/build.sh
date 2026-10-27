@@ -255,13 +255,18 @@ package() {
     done
     cp "$DEPS"/lib/gstreamer-1.0/*.dylib "$L/gstreamer-1.0/"
     cp "$DEPS/libexec/gstreamer-1.0/gst-plugin-scanner" "$root/libexec/gstreamer-1.0/"
+    # nullglob: a library built statically (PCRE2 is linked into GLib) has no .dylib, and its pattern must match nothing
+    # rather than stay a literal path that otool can't open.
+    shopt -s nullglob
     for f in "$L"/gstreamer-1.0/*.dylib "$root/libexec/gstreamer-1.0/gst-plugin-scanner" "$L"/libg*.dylib "$L"/libintl*.dylib \
              "$L"/libffi*.dylib "$L"/libpcre2-*.dylib "$L/wine/x86_64-unix/winegstreamer.so"; do
-        otool -L "$f" | awk 'NR>1 {print $1}' | grep "^$DEPS/lib/" | while read -r d; do
+        # grep finds nothing for most files (meson installs without rpaths): "|| true" so pipefail doesn't stop the build.
+        otool -L "$f" | awk 'NR>1 {print $1}' | { grep "^$DEPS/lib/" || true; } | while read -r d; do
             install_name_tool -change "$d" "@rpath/$(basename "$d")" "$f"; done
-        otool -l "$f" | awk '/LC_RPATH/{getline; getline; print $2}' | grep "^$DEPS" | while read -r d; do
+        otool -l "$f" | awk '/LC_RPATH/{getline; getline; print $2}' | { grep "^$DEPS" || true; } | while read -r d; do
             install_name_tool -delete_rpath "$d" "$f"; done
     done
+    shopt -u nullglob
     for f in "$L"/gstreamer-1.0/*.dylib; do install_name_tool -add_rpath @loader_path/../ "$f"; codesign -f -s - "$f" 2>/dev/null; done
     install_name_tool -add_rpath @loader_path/../../lib/ "$root/libexec/gstreamer-1.0/gst-plugin-scanner"
     codesign -f -s - "$root/libexec/gstreamer-1.0/gst-plugin-scanner" 2>/dev/null
