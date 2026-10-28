@@ -14,13 +14,16 @@ source tarballs of the other components. Git metadata is excluded.
 
 **Status:** experimental. Built packages are marked experimental and local-only in their manifest until they pass
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
-`runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7` and, current since 2026-10-26, `runtime-wine-11.19-9`.
+`runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9` and, current since
+2026-10-28, `runtime-wine-11.19-10`.
 
-## 11.19-10 candidate
+## 11.19-10 (released 2026-10-28)
 
 11.19-9 plus video in games: Wine is built with GStreamer support and the package carries a minimal GStreamer 1.28.8
 that decodes with macOS's own codecs. Without it, games that play videos through Media Foundation or DirectShow showed
-black for each video's length (Unruly Heroes, 2026-10-27). Not a release until it passes AnvilMac's acceptance.
+black for each video's length (Unruly Heroes, 2026-10-27). Released by `release.yml` (run 40773802058) from build run
+40590792615 (commit 0c5434c) after AnvilMac's acceptance; package SHA-256
+`75cccbff841f947acbef6f5085ed1d67e71765aa4fa87e9ca4aa485d9883de62`.
 
 ## 11.19-9 (released 2026-10-26)
 
