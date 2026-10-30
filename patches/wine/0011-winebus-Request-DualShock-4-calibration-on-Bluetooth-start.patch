@@ -1,0 +1,79 @@
+Subject: winebus: request DualShock 4 calibration when a Bluetooth pad starts on macOS.
+Author: AnvilMac contributors (Codex-assisted, reviewed by Claude Code), 2026-10-29
+Licence: LGPL-2.1-or-later, same as Wine dlls/winebus.sys/bus_iohid.c.
+Provenance: original change against Wine 11.19, source tarball
+73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f.
+Not an upstream commit; not submitted upstream.
+
+Over Bluetooth a DualShock 4 sends basic input report 0x01 until it receives
+feature request 0x02, then extended report 0x11. Wine's report fixup in
+winebus.sys main.c expects the Linux behaviour, where the kernel always makes
+that request; on macOS nothing guarantees it, so a pad can stay in basic mode.
+Games with a native Sony reader (Rewired in Unruly Heroes) then see no input.
+
+Request feature 0x02 once in IOHID device start, so newly enumerated
+reconnects are covered too. The request is made in the backend, not through
+IOCTL_HID_GET_FEATURE, so Wine's conversion back to report 0x01 stays on for
+generic HID/DirectInput readers. Failure only logs a warning. Limited to
+054c:09cc over Bluetooth (the model tested); no USB or DualSense change.
+
+Tested 2026-10-29 with a local build of this code on 11.19-10 and the owner's
+pad: after a fresh connect the pad sent basic reports until the request, then
+extended ones; Unruly Heroes controls worked at startup and after an in-game
+disconnect/reconnect (request repeated); Shank kept working on converted reports.
+
+Protocol reference (consulted 2026-10-29): SDL_hidapi_ps4.c,
+HIDAPI_DriverPS4_LoadOfficialCalibrationData. No SDL code copied.
+https://github.com/libsdl-org/SDL/blob/main/src/joystick/hidapi/SDL_hidapi_ps4.c
+---
+--- a/dlls/winebus.sys/bus_iohid.c
++++ b/dlls/winebus.sys/bus_iohid.c
+@@ -136,6 +136,7 @@
+     struct unix_device unix_device;
+     IOHIDDeviceRef device;
+     uint8_t *buffer;
++    BOOL dualshock4_bluetooth;
+ };
+ 
+ static inline struct iohid_device *impl_from_unix_device(struct unix_device *iface)
+@@ -180,6 +181,23 @@
+ {
+ }
+ 
++/* Requesting calibration report 0x02 enables extended Bluetooth input. Keep
++ * winebus's report fixups enabled so generic HID/DirectInput readers still get
++ * report 0x01; a native Sony reader can opt into extended reports as before.
++ */
++static void iohid_device_init_dualshock4(struct iohid_device *impl)
++{
++    uint8_t report[64] = {0x02};
++    CFIndex length = sizeof(report);
++    IOReturn ret;
++
++    ret = IOHIDDeviceGetReport(impl->device, kIOHIDReportTypeFeature, report[0], report, &length);
++    if (ret != kIOReturnSuccess)
++        WARN("DualShock4 Bluetooth calibration request failed: %#x\n", (unsigned int)ret);
++    else
++        TRACE("DualShock4 Bluetooth calibration requested, length %ld\n", (long)length);
++}
++
+ static NTSTATUS iohid_device_start(struct unix_device *iface)
+ {
+     DWORD length;
+@@ -191,6 +209,7 @@
+     impl->buffer = malloc(length);
+ 
+     IOHIDDeviceRegisterInputReportCallback(impl->device, impl->buffer, length, handle_IOHIDDeviceIOHIDReportCallback, iface);
++    if (impl->dualshock4_bluetooth) iohid_device_init_dualshock4(impl);
+     return STATUS_SUCCESS;
+ }
+ 
+@@ -448,6 +467,8 @@
+     list_add_tail(&device_list, &impl->unix_device.entry);
+     impl->device = IOHIDDevice;
+     impl->buffer = NULL;
++    /* Limited to the Bluetooth model verified with hardware. */
++    impl->dualshock4_bluetooth = desc.bus_type == BUS_TYPE_BLUETOOTH && desc.vid == 0x054c && desc.pid == 0x09cc;
+ 
+     bus_event_queue_device_created(&event_queue, &impl->unix_device, &desc);
+ }

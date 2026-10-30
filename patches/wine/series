@@ -9,3 +9,6 @@
 0008-ntdll-Keep-the-old-macOS-gs-model-in-D3DMetal-processes.patch
 0009-wow64cpu-Use-far-returns-for-the-32-64-bit-transitions-under-Rosetta-2.patch
 0010-opengl32-Flush-only-explicit-WoW64-shadow-map-ranges.patch
+0011-winebus-Request-DualShock-4-calibration-on-Bluetooth-start.patch
+0012-winebus-Show-a-DualSense-as-a-DualShock-4-or-an-Xbox-controller.patch
+0013-winebus-Keep-SDL-away-from-PlayStation-controllers.patch

@@ -1,0 +1,523 @@
+Subject: winebus: show a DualSense as a DualShock 4 or an Xbox 360 controller on request.
+Author: AnvilMac contributors (Claude Code), 2026-10-29
+Licence: LGPL-2.1-or-later, same as Wine dlls/winebus.sys/bus_iohid.c.
+Provenance: original change against Wine 11.19 with AnvilMac patch 0011, source tarball
+73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f.
+Not an upstream commit; not submitted upstream.
+
+Games whose own controller code predates the DualSense (Rewired before 1.1.38,
+e.g. Unruly Heroes) see it but map no buttons. WINEBUS_DUALSENSE, set per game
+by AnvilMac, changes how a DualSense (054c:0ce6, USB or Bluetooth) is shown to Windows:
+
+  ds4:  as a DualShock 4 (054c:09cc, "Wireless Controller"), with a DualShock 4
+        USB report descriptor; input reports rewritten to the DualShock 4
+        layout; DualShock 4 output report 5 (rumble, light bar) sent to the
+        DualSense as output report 2; feature reports refused.
+  xbox: as an Xbox 360 controller (045e:028e, XInput through winexinput),
+        using Wine's hid_device_add_gamepad layout and haptics, filled from
+        the DualSense's reports, rumble sent back to it. is_hidraw follows
+        winebus.sys's preference rule so the device is kept.
+
+Over Bluetooth the modes request feature report 5 (calibration) at device start,
+which makes the pad send its full report 0x31, read its input in the USB layout
+(0x31 without its extra byte; the short report 1 as a fallback), and send output
+as Bluetooth report 0x31 with its CRC-32 (seed 0xa2). The DualShock 4 shape is
+presented as a USB pad, so the DualShock 4 Bluetooth handling doesn't apply to it.
+
+Unset (or any other value): unchanged, over USB and Bluetooth.
+
+Tested 2026-10-29 with a local build of this code on 11.19-10 and the owner's
+pad: by USB, Unruly Heroes worked as ds4 (PlayStation icons; output report 5
+translated) and as xbox (Xbox icons, XInput, rumble), Shank as xbox; over
+Bluetooth, Unruly Heroes as ds4 and as xbox, Shank as itself (and with SDL,
+patch 0013, present).
+
+Protocol references (consulted 2026-10-29): Linux drivers/hid/hid-playstation.c
+(DualSense input/output report layout, Bluetooth CRC), Linux drivers/hid/hid-sony.c and
+SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copied.
+---
+--- a/dlls/winebus.sys/bus_iohid.c
++++ b/dlls/winebus.sys/bus_iohid.c
+@@ -85,6 +85,8 @@
+ #endif /* __APPLE__ */
+ 
+ #include <pthread.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+ #include "ntstatus.h"
+ #include "windef.h"
+@@ -131,12 +133,26 @@
+ static struct list device_list = LIST_INIT(device_list);
+ static const struct bus_options *options;
+ 
++/* How a DualSense is shown to games, from WINEBUS_DUALSENSE: as itself (unset), "ds4" for games that know
++ * the DualShock 4 but not the DualSense, "xbox" for games that know no PlayStation controller. */
++enum dualsense_mode
++{
++    DUALSENSE_NATIVE,
++    DUALSENSE_AS_DS4,
++    DUALSENSE_AS_XBOX,
++};
++
+ struct iohid_device
+ {
+     struct unix_device unix_device;
+     IOHIDDeviceRef device;
+     uint8_t *buffer;
+     BOOL dualshock4_bluetooth;
++    enum dualsense_mode dualsense;
++    BYTE dualsense_last[9];
++    BYTE ds4_counter;
++    BOOL dualsense_bluetooth;
++    BYTE dualsense_output_seq;
+ };
+ 
+ static inline struct iohid_device *impl_from_unix_device(struct unix_device *iface)
+@@ -198,6 +214,231 @@
+         TRACE("DualShock4 Bluetooth calibration requested, length %ld\n", (long)length);
+ }
+ 
++/* DualShock 4 USB report descriptor for a DualSense shown as one: input report 1 in the DualShock 4 layout
++ * (sticks, hat, 14 buttons, counter, triggers, then 54 bytes of sensors, status and touch) and output
++ * report 5 (rumble and light bar). */
++static const BYTE ds4_report_descriptor[] =
++{
++    0x05, 0x01, 0x09, 0x05, 0xa1, 0x01,             /* Generic Desktop, Game Pad, Collection (Application) */
++    0x85, 0x01,                                     /*   Report ID (1) */
++    0x09, 0x30, 0x09, 0x31, 0x09, 0x32, 0x09, 0x35, /*   X, Y, Z, Rz: the sticks */
++    0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x04, 0x81, 0x02,
++    0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14, /* Hat switch */
++    0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00,
++    0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02, /* Buttons 1-14 */
++    0x06, 0x00, 0xff, 0x09, 0x20, 0x75, 0x06, 0x95, 0x01, 0x15, 0x00, 0x25, 0x3f, 0x81, 0x02, /* Report counter */
++    0x05, 0x01, 0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02, /* Triggers */
++    0x06, 0x00, 0xff, 0x09, 0x21, 0x95, 0x36, 0x81, 0x02, /* Sensors, status, touch */
++    0x85, 0x05, 0x09, 0x22, 0x95, 0x1f, 0x91, 0x02, /*   Report ID (5): output, 31 bytes */
++    0xc0,
++};
++
++static void set_product(struct device_desc *desc, const char *name)
++{
++    UINT i;
++
++    for (i = 0; name[i] && i < ARRAY_SIZE(desc->product) - 1; i++) desc->product[i] = name[i];
++    desc->product[i] = 0;
++}
++
++static enum dualsense_mode get_dualsense_mode(const struct device_desc *desc)
++{
++    const char *mode = getenv("WINEBUS_DUALSENSE");
++
++    if (desc->vid != 0x054c || desc->pid != 0x0ce6) return DUALSENSE_NATIVE;
++    if (desc->bus_type != BUS_TYPE_USB && desc->bus_type != BUS_TYPE_BLUETOOTH) return DUALSENSE_NATIVE;
++    TRACE("%s DualSense shown as %s\n", desc->bus_type == BUS_TYPE_USB ? "USB" : "Bluetooth",
++          mode && (!strcmp(mode, "ds4") || !strcmp(mode, "xbox")) ? mode : "itself");
++    if (mode && !strcmp(mode, "ds4")) return DUALSENSE_AS_DS4;
++    if (mode && !strcmp(mode, "xbox")) return DUALSENSE_AS_XBOX;
++    return DUALSENSE_NATIVE;
++}
++
++/* CRC-32 (zlib's) of a seed byte then data, as DualSense Bluetooth reports carry it. */
++static UINT dualsense_crc32(BYTE seed, const BYTE *data, UINT length)
++{
++    UINT crc = 0xffffffff, i, bit;
++
++    for (i = 0; i <= length; i++)
++    {
++        crc ^= i ? data[i - 1] : seed;
++        for (bit = 0; bit < 8; bit++) crc = (crc >> 1) ^ (0xedb88320 & -(crc & 1));
++    }
++    return ~crc;
++}
++
++/* Sends a DualSense output report: the rumble motors when rumble is set, the light bar when rgb is. Over USB
++ * report 2 holds the 47 common bytes; over Bluetooth report 0x31 holds a sequence, a tag, the same bytes and a
++ * CRC-32 over 0xa2 and the report. */
++static IOReturn dualsense_send_output(struct iohid_device *impl, BOOL rumble, BYTE strong, BYTE weak, const BYTE *rgb)
++{
++    BYTE common[47] = {0}, report[78] = {0};
++    UINT length, crc;
++
++    if (rumble)
++    {
++        common[0] = 0x03; /* compatible vibration, haptics select */
++        common[2] = weak; /* right motor */
++        common[3] = strong; /* left motor */
++    }
++    if (rgb)
++    {
++        common[1] = 0x04; /* light bar control */
++        memcpy(common + 44, rgb, 3);
++    }
++    if (impl->dualsense_bluetooth)
++    {
++        report[0] = 0x31;
++        report[1] = (impl->dualsense_output_seq++ & 0x0f) << 4;
++        report[2] = 0x10;
++        memcpy(report + 3, common, sizeof(common));
++        crc = dualsense_crc32(0xa2, report, 74);
++        report[74] = crc;
++        report[75] = crc >> 8;
++        report[76] = crc >> 16;
++        report[77] = crc >> 24;
++        length = 78;
++    }
++    else
++    {
++        report[0] = 0x02;
++        memcpy(report + 1, common, sizeof(common));
++        length = 48;
++    }
++    return IOHIDDeviceSetReport(impl->device, kIOHIDReportTypeOutput, report[0], report, length);
++}
++
++/* Requesting the calibration report (feature 5) makes a Bluetooth DualSense send its full input report 0x31,
++ * as for the DualShock 4; the shown-as modes read sensors and touch from it. */
++static void iohid_device_init_dualsense_bluetooth(struct iohid_device *impl)
++{
++    uint8_t report[64] = {0x05};
++    CFIndex length = sizeof(report);
++    IOReturn ret;
++
++    ret = IOHIDDeviceGetReport(impl->device, kIOHIDReportTypeFeature, report[0], report, &length);
++    if (ret != kIOReturnSuccess)
++        WARN("DualSense Bluetooth calibration request failed: %#x\n", (unsigned int)ret);
++    else
++        TRACE("DualSense Bluetooth calibration requested, length %ld\n", (long)length);
++}
++
++/* A DualSense input report in the USB layout (64 bytes): USB report 1 as it is, Bluetooth report 0x31 without
++ * its extra byte, or the short Bluetooth report 1 (sticks, buttons, triggers; no sensors) spread out. */
++static BOOL dualsense_usb_report(const uint8_t *report, CFIndex length, BYTE *usb)
++{
++    if (length >= 64 && report[0] == 0x01)
++    {
++        memcpy(usb, report, 64);
++        return TRUE;
++    }
++    memset(usb, 0, 64);
++    usb[0] = 0x01;
++    if (length >= 65 && report[0] == 0x31)
++    {
++        memcpy(usb + 1, report + 2, 63);
++        return TRUE;
++    }
++    if (length >= 10 && report[0] == 0x01)
++    {
++        memcpy(usb + 1, report + 1, 4); /* sticks */
++        memcpy(usb + 8, report + 5, 3); /* buttons */
++        usb[5] = report[8]; /* L2 */
++        usb[6] = report[9]; /* R2 */
++        return TRUE;
++    }
++    return FALSE;
++}
++
++/* Rewrites a DualSense USB input report as a DualShock 4 USB one: sticks, hat and buttons (Create acts as
++ * Share) keep their bits; triggers, sensors, battery and the first two touch points move to their places. */
++static void dualsense_to_ds4_report(struct iohid_device *impl, const BYTE *in, BYTE *out)
++{
++    UINT timestamp = (in[28] | (in[29] << 8) | (in[30] << 16) | ((UINT)in[31] << 24)) / 16; /* 0.33 to 5.33 us */
++    BYTE level = (in[53] & 0x0f) > 10 ? 10 : in[53] & 0x0f;
++
++    memset(out, 0, 64);
++    out[0] = 0x01;
++    memcpy(out + 1, in + 1, 4);
++    out[5] = in[8];
++    out[6] = in[9];
++    out[7] = (in[10] & 0x03) | (impl->ds4_counter++ << 2);
++    out[8] = in[5];
++    out[9] = in[6];
++    out[10] = timestamp;
++    out[11] = timestamp >> 8;
++    memcpy(out + 13, in + 16, 12);
++    out[30] = ((in[53] >> 4) == 2 ? 11 : level) | 0x10; /* full when charged; cable connected */
++    out[33] = 1;
++    out[34] = impl->ds4_counter;
++    memcpy(out + 35, in + 33, 8);
++}
++
++static void handle_dualsense_as_ds4_report(void *context, IOReturn result, void *sender, IOHIDReportType type,
++        uint32_t reportID, uint8_t *report, CFIndex report_length)
++{
++    struct unix_device *iface = (struct unix_device *)context;
++    BYTE usb[64], ds4[64];
++
++    if (!dualsense_usb_report(report, report_length, usb)) return;
++    dualsense_to_ds4_report(impl_from_unix_device(iface), usb, ds4);
++    bus_event_queue_input_report(&event_queue, iface, ds4, sizeof(ds4));
++}
++
++/* Fills Wine's Xbox-style gamepad report from a DualSense input report, as XUSB devices report it. */
++static void handle_dualsense_as_xbox_report(void *context, IOReturn result, void *sender, IOHIDReportType type,
++        uint32_t reportID, uint8_t *input, CFIndex report_length)
++{
++    struct unix_device *iface = (struct unix_device *)context;
++    struct iohid_device *impl = impl_from_unix_device(iface);
++    struct hid_device_state *state = &iface->hid_device_state;
++    BYTE report[64], now[9], hat, b0, b1;
++    BOOL up, right, down, left;
++    LONG value;
++    int i;
++
++    if (!dualsense_usb_report(input, report_length, report)) return;
++    memcpy(now, report + 1, 6); /* sticks and triggers */
++    memcpy(now + 6, report + 8, 3); /* buttons, without the report counter */
++    if (!memcmp(now, impl->dualsense_last, sizeof(now))) return;
++    memcpy(impl->dualsense_last, now, sizeof(now));
++
++    for (i = 0; i < 4; i++)
++    {
++        value = ((report[1 + i] << 8) | report[1 + i]) - 32768;
++        if (i & 1) value = -value - 1; /* up is positive */
++        hid_device_set_abs_axis(iface, i, value);
++    }
++    hid_device_set_abs_axis(iface, 4, report[5] * 32767 / 255);
++    hid_device_set_abs_axis(iface, 5, report[6] * 32767 / 255);
++
++    b0 = report[8];
++    b1 = report[9];
++    hat = b0 & 0x0f;
++    up = hat == 7 || hat == 0 || hat == 1;
++    right = hat >= 1 && hat <= 3;
++    down = hat >= 3 && hat <= 5;
++    left = hat >= 5 && hat <= 7;
++    hid_device_set_button(iface, 0, !!(b0 & 0x20)); /* A: Cross */
++    hid_device_set_button(iface, 1, !!(b0 & 0x40)); /* B: Circle */
++    hid_device_set_button(iface, 2, !!(b0 & 0x10)); /* X: Square */
++    hid_device_set_button(iface, 3, !!(b0 & 0x80)); /* Y: Triangle */
++    hid_device_set_button(iface, 4, !!(b1 & 0x01)); /* LB: L1 */
++    hid_device_set_button(iface, 5, !!(b1 & 0x02)); /* RB: R1 */
++    hid_device_set_button(iface, 6, !!(b1 & 0x10)); /* Back: Create */
++    hid_device_set_button(iface, 7, !!(b1 & 0x20)); /* Start: Options */
++    hid_device_set_button(iface, 8, !!(b1 & 0x40)); /* LS: L3 */
++    hid_device_set_button(iface, 9, !!(b1 & 0x80)); /* RS: R3 */
++    hid_device_set_button(iface, 10, up);
++    hid_device_set_button(iface, 11, right);
++    hid_device_set_button(iface, 12, down);
++    hid_device_set_button(iface, 13, left);
++    hid_device_set_hatswitch_x(iface, 0, right - left);
++    hid_device_set_hatswitch_y(iface, 0, down - up);
++    hid_device_set_button(iface, 16, !!(report[10] & 0x01)); /* Guide: PS */
++    bus_event_queue_input_report(&event_queue, iface, state->report_buf, state->report_len);
++}
++
+ static NTSTATUS iohid_device_start(struct unix_device *iface)
+ {
+     DWORD length;
+@@ -208,8 +449,12 @@
+     length = CFNumberToDWORD(num);
+     impl->buffer = malloc(length);
+ 
+-    IOHIDDeviceRegisterInputReportCallback(impl->device, impl->buffer, length, handle_IOHIDDeviceIOHIDReportCallback, iface);
++    IOHIDDeviceRegisterInputReportCallback(impl->device, impl->buffer, length,
++                                           impl->dualsense == DUALSENSE_AS_DS4 ? handle_dualsense_as_ds4_report :
++                                           impl->dualsense == DUALSENSE_AS_XBOX ? handle_dualsense_as_xbox_report :
++                                           handle_IOHIDDeviceIOHIDReportCallback, iface);
+     if (impl->dualshock4_bluetooth) iohid_device_init_dualshock4(impl);
++    if (impl->dualsense != DUALSENSE_NATIVE && impl->dualsense_bluetooth) iohid_device_init_dualsense_bluetooth(impl);
+     return STATUS_SUCCESS;
+ }
+ 
+@@ -232,6 +477,14 @@
+     int data_length = CFDataGetLength(data);
+     const UInt8 *ptr;
+ 
++    if (impl->dualsense == DUALSENSE_AS_DS4)
++    {
++        *out_length = sizeof(ds4_report_descriptor);
++        if (length < sizeof(ds4_report_descriptor)) return STATUS_BUFFER_TOO_SMALL;
++        memcpy(buffer, ds4_report_descriptor, sizeof(ds4_report_descriptor));
++        return STATUS_SUCCESS;
++    }
++
+     *out_length = data_length;
+     if (length < data_length)
+         return STATUS_BUFFER_TOO_SMALL;
+@@ -245,8 +498,16 @@
+ {
+     IOReturn result;
+     struct iohid_device *impl = impl_from_unix_device(iface);
+-    result = IOHIDDeviceSetReport(impl->device, kIOHIDReportTypeOutput, packet->reportId,
+-                                  packet->reportBuffer, packet->reportBufferLen);
++    const BYTE *ds4 = packet->reportBuffer;
++
++    if (impl->dualsense == DUALSENSE_AS_DS4)
++    {
++        /* DualShock 4 report 5: flags (1 rumble, 2 light bar), weak and strong motors at 4 and 5, colour at 6. */
++        if (packet->reportId != 0x05 || packet->reportBufferLen < 9) result = kIOReturnSuccess;
++        else result = dualsense_send_output(impl, ds4[1] & 0x01, ds4[5], ds4[4], (ds4[1] & 0x02) ? ds4 + 6 : NULL);
++    }
++    else result = IOHIDDeviceSetReport(impl->device, kIOHIDReportTypeOutput, packet->reportId,
++                                       packet->reportBuffer, packet->reportBufferLen);
+     if (result == kIOReturnSuccess)
+     {
+         io->Information = packet->reportBufferLen;
+@@ -265,6 +526,12 @@
+     CFIndex report_length = packet->reportBufferLen;
+     struct iohid_device *impl = impl_from_unix_device(iface);
+ 
++    if (impl->dualsense == DUALSENSE_AS_DS4)
++    {
++        io->Information = 0;
++        io->Status = STATUS_NOT_SUPPORTED;
++        return;
++    }
+     ret = IOHIDDeviceGetReport(impl->device, kIOHIDReportTypeFeature, packet->reportId,
+                                packet->reportBuffer, &report_length);
+     if (ret == kIOReturnSuccess)
+@@ -284,6 +551,12 @@
+     IOReturn result;
+     struct iohid_device *impl = impl_from_unix_device(iface);
+ 
++    if (impl->dualsense == DUALSENSE_AS_DS4)
++    {
++        io->Information = 0;
++        io->Status = STATUS_NOT_SUPPORTED;
++        return;
++    }
+     result = IOHIDDeviceSetReport(impl->device, kIOHIDReportTypeFeature, packet->reportId,
+                                   packet->reportBuffer, packet->reportBufferLen);
+     if (result == kIOReturnSuccess)
+@@ -400,6 +673,96 @@
+     if (!ret) desc->bus_type = BUS_TYPE_UNKNOWN;
+ }
+ 
++static NTSTATUS dualsense_xbox_haptics_start(struct unix_device *iface, UINT duration_ms,
++                                             USHORT rumble_intensity, USHORT buzz_intensity,
++                                             USHORT left_intensity, USHORT right_intensity)
++{
++    struct iohid_device *impl = impl_from_unix_device(iface);
++
++    if (dualsense_send_output(impl, TRUE, rumble_intensity >> 8, buzz_intensity >> 8, NULL) != kIOReturnSuccess)
++        return STATUS_UNSUCCESSFUL;
++    return STATUS_SUCCESS;
++}
++
++static NTSTATUS dualsense_xbox_haptics_stop(struct unix_device *iface)
++{
++    return dualsense_xbox_haptics_start(iface, 0, 0, 0, 0, 0);
++}
++
++static NTSTATUS dualsense_xbox_physical_device_control(struct unix_device *iface, USAGE control)
++{
++    return STATUS_NOT_SUPPORTED;
++}
++
++static NTSTATUS dualsense_xbox_physical_device_set_gain(struct unix_device *iface, BYTE percent)
++{
++    return STATUS_NOT_SUPPORTED;
++}
++
++static NTSTATUS dualsense_xbox_physical_effect_control(struct unix_device *iface, BYTE index,
++                                                       USAGE control, BYTE iterations)
++{
++    return STATUS_NOT_SUPPORTED;
++}
++
++static NTSTATUS dualsense_xbox_physical_effect_update(struct unix_device *iface, BYTE index,
++                                                      struct effect_params *params)
++{
++    return STATUS_NOT_SUPPORTED;
++}
++
++static const struct hid_device_vtbl dualsense_xbox_vtbl =
++{
++    iohid_device_destroy,
++    iohid_device_start,
++    iohid_device_stop,
++    dualsense_xbox_haptics_start,
++    dualsense_xbox_haptics_stop,
++    dualsense_xbox_physical_device_control,
++    dualsense_xbox_physical_device_set_gain,
++    dualsense_xbox_physical_effect_control,
++    dualsense_xbox_physical_effect_update,
++};
++
++/* A USB DualSense shown as an Xbox 360 controller: Wine's Xbox-style gamepad (XInput through winexinput),
++ * filled from the DualSense's reports, its rumble sent back to the DualSense. */
++static void create_dualsense_as_xbox(IOHIDDeviceRef IOHIDDevice, struct device_desc *desc)
++{
++    static const USAGE_AND_PAGE device_usage = {.UsagePage = HID_USAGE_PAGE_GENERIC, .Usage = HID_USAGE_GENERIC_GAMEPAD};
++    struct iohid_device *impl;
++    BOOL bluetooth = desc->bus_type == BUS_TYPE_BLUETOOTH;
++
++    desc->vid = 0x045e;
++    desc->pid = 0x028e;
++    desc->interface = 0;
++    desc->bus_type = BUS_TYPE_USB;
++    desc->bus_id = 0xff5d01; /* vendor class, subclass 0x5d, protocol 1: an Xbox 360 controller */
++    set_product(desc, "Controller (XBOX 360 For Windows)");
++    desc->is_gamepad = TRUE;
++    /* winebus.sys keeps a device only if this matches its hidraw preference for it */
++    desc->is_hidraw = options->disable_sdl && options->disable_input;
++
++    if (!(impl = hid_device_create(&dualsense_xbox_vtbl, sizeof(struct iohid_device)))) return;
++    list_add_tail(&device_list, &impl->unix_device.entry);
++    impl->device = IOHIDDevice;
++    impl->buffer = NULL;
++    impl->dualsense = DUALSENSE_AS_XBOX;
++    impl->dualsense_bluetooth = bluetooth;
++    if (!hid_device_begin_report_descriptor(&impl->unix_device, &device_usage) ||
++        !hid_device_add_gamepad(&impl->unix_device) ||
++        !hid_device_add_haptics(&impl->unix_device) ||
++        !hid_device_end_report_descriptor(&impl->unix_device))
++    {
++        list_remove(&impl->unix_device.entry);
++        impl->unix_device.vtbl->destroy(&impl->unix_device);
++        return;
++    }
++    hid_device_set_hatswitch_x(&impl->unix_device, 0, 0);
++    hid_device_set_hatswitch_y(&impl->unix_device, 0, 0);
++
++    bus_event_queue_device_created(&event_queue, &impl->unix_device, desc);
++}
++
+ static void handle_DeviceMatchingCallback(void *context, IOReturn result, void *sender, IOHIDDeviceRef IOHIDDevice)
+ {
+     struct device_desc desc =
+@@ -407,6 +770,8 @@
+         .interface = -1, .bus_id = -1, .is_hidraw = TRUE,
+     };
+     struct iohid_device *impl;
++    enum dualsense_mode dualsense;
++    BOOL bluetooth;
+     USAGE_AND_PAGE usages;
+     CFStringRef str;
+ 
+@@ -463,12 +828,34 @@
+ 
+     TRACE("dev %p, desc %s.\n", IOHIDDevice, debugstr_device_desc(&desc));
+ 
++    dualsense = get_dualsense_mode(&desc);
++    if (dualsense == DUALSENSE_AS_XBOX)
++    {
++        create_dualsense_as_xbox(IOHIDDevice, &desc);
++        return;
++    }
++    bluetooth = desc.bus_type == BUS_TYPE_BLUETOOTH;
++    if (dualsense == DUALSENSE_AS_DS4)
++    {
++        /* reports are rewritten in the DualShock 4's USB layout, so it is shown as a USB pad */
++        desc.pid = 0x09cc;
++        desc.bus_type = BUS_TYPE_USB;
++        if (bluetooth)
++        {
++            desc.interface = 3;
++            desc.bus_id = 0x030000; /* HID class */
++        }
++        set_product(&desc, "Wireless Controller");
++    }
++
+     if (!(impl = raw_device_create(&iohid_device_vtbl, sizeof(struct iohid_device)))) return;
+     list_add_tail(&device_list, &impl->unix_device.entry);
+     impl->device = IOHIDDevice;
+     impl->buffer = NULL;
+     /* Limited to the Bluetooth model verified with hardware. */
+     impl->dualshock4_bluetooth = desc.bus_type == BUS_TYPE_BLUETOOTH && desc.vid == 0x054c && desc.pid == 0x09cc;
++    impl->dualsense = dualsense;
++    impl->dualsense_bluetooth = dualsense != DUALSENSE_NATIVE && bluetooth;
+ 
+     bus_event_queue_device_created(&event_queue, &impl->unix_device, &desc);
+ }

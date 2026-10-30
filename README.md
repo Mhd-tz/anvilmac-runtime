@@ -17,6 +17,25 @@ AnvilMac's acceptance tests. Only a tested build run's exact files are released 
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9` and, current since
 2026-10-28, `runtime-wine-11.19-10`.
 
+## 11.19-11 candidate
+
+11.19-10 plus game controller fixes:
+- **DualShock 4 over Bluetooth** (Wine patch 0011): the pad sends basic input reports until it is asked for its
+  calibration data; Wine's report conversion assumes the Linux behaviour, where the kernel always asks. On macOS
+  nothing did, so games with their own Sony reader could see no input. winebus now asks once when the pad starts,
+  including after a reconnect, and keeps converting reports for ordinary HID/DirectInput readers.
+- **DualSense shown as a DualShock 4 or an Xbox 360 controller** (patch 0012, `WINEBUS_DUALSENSE=ds4|xbox`,
+  manifest feature `dualsense-presentation`), over USB and Bluetooth, for games whose controller code predates the
+  DualSense. Without the variable nothing changes.
+- **SDL 2.32.10** (zlib licence) for winebus's SDL backend, so Xbox, Switch and other controllers reach games
+  (as Xbox controllers where SDL knows them). Before, this runtime was built without SDL, and winebus kept only the
+  pads it reads as raw HID. Patch 0013 keeps SDL away from PlayStation pads, which stay on the raw HID path.
+
+Local builds of this code passed owner tests on 11.19-10 with the owner's DualShock 4 and DualSense (startup,
+in-game reconnect, both PS5 modes over USB and Bluetooth, two players). No non-PlayStation controller was available,
+so the SDL path for other controllers is untested. The exact CI artifact must pass regression checks before release.
+11.19-10 remains the current release. The manifest now also checks `winebus.so` and `libSDL2-2.0.0.dylib`.
+
 ## 11.19-10 (released 2026-10-28)
 
 11.19-9 plus video in games: Wine is built with GStreamer support and the package carries a minimal GStreamer 1.28.8
@@ -43,6 +62,7 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
 | FreeType | 2.13.3 | Wine's font back end |
+| SDL | 2.32.10 | winebus's SDL backend for game controllers other than PlayStation ones (Xbox, Switch and others), zlib licence; PlayStation pads stay on raw HID (patch 0013). From 11.19-11. |
 | Wine Mono | 11.3.0 | .NET for Windows programs; the unmodified upstream release that Wine 11.19 asks for, in `share/wine/mono`. Wine Gecko is not bundled. |
 | GStreamer | 1.28.8 | Video in games: Wine's winegstreamer (Media Foundation, DirectShow) decodes through macOS's own codecs: VideoToolbox (H.264, HEVC, MPEG-2) and AudioToolbox (AAC, MP3), with the MP4 and Matroska/WebM demuxers; only the needed plugins, no GPL plugins, no FFmpeg. GLib 2.86.3, libffi, PCRE2 and proxy-libintl from GStreamer's pinned wraps. LGPL-2.1-or-later (GStreamer, GLib, proxy-libintl), MIT (libffi), BSD-3-Clause (PCRE2); full sources in the source archive. From 11.19-10. |
 

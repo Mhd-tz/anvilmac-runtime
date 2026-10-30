@@ -24,6 +24,7 @@ def sha(rel):
 key_files = ["bin/wine", "bin/wineserver",
              "lib/wine/x86_64-unix/ntdll.so", "lib/wine/x86_64-unix/win32u.so", "lib/wine/x86_64-unix/winemac.so",
              "lib/wine/x86_64-unix/winemetal.so", "lib/wine/x86_64-unix/opengl32.so",
+             "lib/wine/x86_64-unix/winebus.so", "lib/libSDL2-2.0.0.dylib",
              "lib/libfreetype.6.dylib", "lib/libvulkan.1.dylib", "lib/libMoltenVK.dylib",
              "share/vulkan/icd.d/MoltenVK_icd.json",
              "lib/wine/x86_64-unix/winegstreamer.so", "lib/libgstreamer-1.0.0.dylib", "lib/libglib-2.0.0.dylib"]
@@ -79,6 +80,8 @@ m = {
     "fixesWineStubs": [{"id": "mouse-in-pointer", "architectures": ["x86_64", "i386"]}],
     # patches/wine/0003: runtime HLSL compiles log begin/end on the "shadertime" channel (off unless WINEDEBUG enables it).
     "diagnostics": ["shader-compile-timing"],
+    # Patch 0012: WINEBUS_DUALSENSE=ds4|xbox shows a USB DualSense to a game as a DualShock 4 or Xbox 360 controller.
+    "features": ["dualsense-presentation"],
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
     # GStreamer (winegstreamer): only the runtime's own plugins; the plugin registry in the game's prefix, never the
     # user's home folder (@prefix needs AnvilMac with prefix substitution, 2026-10-27).

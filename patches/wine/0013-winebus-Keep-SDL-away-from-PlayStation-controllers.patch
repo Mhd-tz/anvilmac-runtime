@@ -1,0 +1,45 @@
+Subject: winebus: keep SDL away from the PlayStation controllers winebus reads as raw HID.
+Author: AnvilMac contributors (Claude Code), 2026-10-29
+Licence: LGPL-2.1-or-later, same as Wine dlls/winebus.sys/bus_sdl.c.
+Provenance: original change against Wine 11.19, source tarball
+73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f.
+Not an upstream commit; not submitted upstream.
+
+winebus.sys prefers raw HID for DualShock 4 and DualSense pads, so their SDL
+devices are dropped, but only after SDL has opened them: its HIDAPI drivers set
+the light bar, player lights and report mode, and its MFi path resets the player
+index, while winebus reads the same pad (patches 0011 and 0012 rely on its mode).
+Before SDL_Init, list Wine's DualShock 4 and DualSense ids in
+SDL_GAMECONTROLLER_IGNORE_DEVICES: SDL's HIDAPI, IOKit and MFi paths all check
+that list before touching a device (SDL 2.32.10 source, read 2026-10-29). Other
+controllers (Xbox, Switch and others) go through SDL as before.
+
+Tested 2026-10-29 with a local build including patches 0011-0013 and SDL 2.32.10:
+SDL loaded and added no PlayStation device; the owner's PS4 and PS5 worked in
+Unruly Heroes and Shank (including two players). No non-PlayStation pad was
+available to test.
+---
+--- a/dlls/winebus.sys/bus_sdl.c
++++ b/dlls/winebus.sys/bus_sdl.c
+@@ -1073,6 +1073,7 @@
+ 
+ NTSTATUS sdl_bus_init(void *args)
+ {
++    typeof(SDL_SetHint) *set_hint;
+     const char *mapping;
+     int i;
+ 
+@@ -1146,6 +1147,13 @@
+     pSDL_JoystickGetVendor = dlsym(sdl_handle, "SDL_JoystickGetVendor");
+     pSDL_JoystickGetType = dlsym(sdl_handle, "SDL_JoystickGetType");
+     pSDL_JoystickGetSerial = dlsym(sdl_handle, "SDL_JoystickGetSerial");
++
++    /* PlayStation pads stay on the hidraw path, which winebus.sys prefers for them (is_dualshock4_gamepad,
++     * is_dualsense_gamepad). Keep SDL from adding them at all: its drivers would change their light bar, player
++     * lights and report mode while winebus reads them. */
++    if ((set_hint = dlsym(sdl_handle, "SDL_SetHint")))
++        set_hint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES,
++                 "0x054c/0x05c4,0x054c/0x09cc,0x054c/0x0ba0,0x054c/0x0ce6,0x054c/0x0df2");
+ 
+     if (pSDL_Init(SDL_INIT_GAMECONTROLLER | SDL_INIT_HAPTIC) < 0)
+     {

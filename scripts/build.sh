@@ -61,6 +61,7 @@ fetch() {
     fetch_file "$MINGW_DXMT_URL" "$MINGW_DXMT_SHA" >/dev/null
     fetch_file "$BISON_URL" "$BISON_SHA" >/dev/null
     fetch_file "$FREETYPE_URL" "$FREETYPE_SHA" "$FREETYPE_MIRROR" >/dev/null
+    fetch_file "$SDL2_URL" "$SDL2_SHA" >/dev/null
     fetch_file "$MOLTENVK_URL" "$MOLTENVK_SHA" >/dev/null
     fetch_file "$SHAIN_WINE_URL" "$SHAIN_WINE_SHA" >/dev/null
     fetch_file "$WINE_MONO_URL" "$WINE_MONO_SHA" >/dev/null
@@ -101,12 +102,17 @@ toolchain() {
 }
 
 deps() {
-    step "bundled libraries (x86_64): FreeType, Vulkan loader, MoltenVK"
+    step "bundled libraries (x86_64): FreeType, SDL 2, Vulkan loader, MoltenVK"
     if [ ! -f "$DEPS/lib/libfreetype.6.dylib" ]; then
         rm -rf "$BLD/freetype-2.13.3"; tar -xJf "$DL/freetype-2.13.3.tar.xz" -C "$BLD"
         timed dep-freetype /usr/bin/env "$DEPLOY" /usr/bin/arch -x86_64 /bin/bash -c "cd '$BLD/freetype-2.13.3' && ./configure --prefix='$DEPS' \
             CC='/usr/bin/clang -arch x86_64' --without-harfbuzz --without-png --without-brotli --without-bzip2 --with-zlib=no \
             --enable-shared --disable-static && make -j$NCPU && make install"
+    fi
+    if [ ! -f "$DEPS/lib/libSDL2-2.0.0.dylib" ]; then
+        rm -rf "$BLD/SDL2-2.32.10"; tar -xzf "$DL/SDL2-2.32.10.tar.gz" -C "$BLD"
+        timed dep-sdl2 /usr/bin/env "$DEPLOY" /usr/bin/arch -x86_64 /bin/bash -c "cd '$BLD/SDL2-2.32.10' && ./configure --prefix='$DEPS' \
+            CC='/usr/bin/clang -arch x86_64' --enable-shared --disable-static && make -j$NCPU && make install"
     fi
     if [ ! -f "$DEPS/lib/libvulkan.1.dylib" ]; then
         timed dep-vulkan-headers /bin/bash -c "PATH='$TC/venv/bin:$SYSPATH' cmake -S '$SRC/Vulkan-Headers' -B '$BLD/vulkan-headers' \
@@ -121,7 +127,7 @@ deps() {
         cp "$(find "$BLD/moltenvk" -path '*dynamic*' -name libMoltenVK.dylib | head -1)" "$DEPS/lib/libMoltenVK.dylib"
         cp "$(find "$BLD/moltenvk" -name LICENSE | head -1)" "$DEPS/MoltenVK-LICENSE" 2>/dev/null || true
     fi
-    lipo -info "$DEPS/lib/libfreetype.6.dylib" "$DEPS/lib/libvulkan.1.dylib" "$DEPS/lib/libMoltenVK.dylib"
+    lipo -info "$DEPS/lib/libfreetype.6.dylib" "$DEPS/lib/libSDL2-2.0.0.dylib" "$DEPS/lib/libvulkan.1.dylib" "$DEPS/lib/libMoltenVK.dylib"
 }
 
 gstreamer() {
@@ -180,17 +186,19 @@ wine() {
             --without-fontconfig --with-freetype --without-gettext --without-gettextpo --without-gphoto --without-gnutls \
             --without-gssapi --with-gstreamer --without-inotify --without-krb5 --with-mingw='$TC/$MINGW_WINE/bin/clang' \
             --without-netapi --with-opencl --without-opengl --without-oss --without-pcap --without-pcsclite --with-pthread \
-            --without-pulse --without-sane --without-sdl --without-udev --with-unwind --without-usb --without-v4l2 --with-vulkan \
+            --without-pulse --without-sane --with-sdl --without-udev --with-unwind --without-usb --without-v4l2 --with-vulkan \
             --without-wayland --without-x \
             CC='/usr/bin/clang -arch x86_64' OBJC='/usr/bin/clang -arch x86_64' CFLAGS=-O2 OBJCFLAGS=-O2 CROSSCFLAGS=-O2 \
             CPPFLAGS='-I$DEPS/include' LDFLAGS='-L$DEPS/lib' \
             FREETYPE_CFLAGS='-I$DEPS/include/freetype2' FREETYPE_LIBS='-L$DEPS/lib -lfreetype' \
             ac_cv_lib_soname_freetype=libfreetype.6.dylib ac_cv_lib_soname_vulkan=libvulkan.1.dylib \
+            SDL2_CFLAGS='-I$DEPS/include/SDL2' SDL2_LIBS='-L$DEPS/lib -lSDL2' ac_cv_lib_soname_SDL2=libSDL2-2.0.0.dylib \
             GSTREAMER_CFLAGS='-I$DEPS/include/gstreamer-1.0 -I$DEPS/include/glib-2.0 -I$DEPS/lib/glib-2.0/include' \
             GSTREAMER_LIBS='-L$DEPS/lib -lgstvideo-1.0 -lgstaudio-1.0 -lgsttag-1.0 -lgstbase-1.0 -lgstreamer-1.0 -lgobject-2.0 -lglib-2.0'"
-        grep -E '^#define (SONAME_LIBFREETYPE|SONAME_LIBVULKAN|HAVE_FT2BUILD_H)' "$b/include/config.h" | tee "$LOGS/wine-config.txt"
+        grep -E '^#define (SONAME_LIBFREETYPE|SONAME_LIBVULKAN|SONAME_LIBSDL2|HAVE_FT2BUILD_H|HAVE_SDL_H)' "$b/include/config.h" | tee "$LOGS/wine-config.txt"
         grep -q SONAME_LIBVULKAN "$LOGS/wine-config.txt" && grep -q SONAME_LIBFREETYPE "$LOGS/wine-config.txt" \
-            || fail "configure did not enable FreeType and Vulkan (logs/wine-configure.log)"
+            && grep -q SONAME_LIBSDL2 "$LOGS/wine-config.txt" && grep -q HAVE_SDL_H "$LOGS/wine-config.txt" \
+            || fail "configure did not enable FreeType, Vulkan and SDL (logs/wine-configure.log)"
     fi
     timed wine-make /usr/bin/env "$DEPLOY" /usr/bin/arch -x86_64 /bin/bash -c "cd '$b' && PATH='$TC/bison/bin:$SYSPATH:$TC/$MINGW_WINE/bin' make -j$NCPU"
     rm -rf "$STAGE/wine"
@@ -225,8 +233,8 @@ package() {
     rm -rf "$pkg"; mkdir -p "$root"
     cp -R "$STAGE/wine/." "$root/"
     # Bundled libraries next to Wine's own, found through the rpaths below (dlopen of a leaf name searches the
-    # caller's LC_RPATH entries): win32u.so opens libfreetype.6.dylib and libvulkan.1.dylib.
-    for f in libfreetype.6.dylib libvulkan.1.dylib libMoltenVK.dylib; do cp -L "$DEPS/lib/$f" "$L/$f"; done
+    # caller's LC_RPATH entries): win32u.so opens libfreetype.6.dylib and libvulkan.1.dylib, winebus.so libSDL2-2.0.0.dylib.
+    for f in libfreetype.6.dylib libSDL2-2.0.0.dylib libvulkan.1.dylib libMoltenVK.dylib; do cp -L "$DEPS/lib/$f" "$L/$f"; done
     mkdir -p "$root/share/vulkan/icd.d"
     printf '%s\n' '{' '    "file_format_version": "1.0.1",' '    "ICD": {' \
         '        "library_path": "../../../lib/libMoltenVK.dylib",' "        \"api_version\": \"1.4.0\"," '        "is_portability_driver": true' \
@@ -283,6 +291,7 @@ package() {
     cp "$SRC/$WINE_DIR/COPYING.LIB" "$root/share/doc/anvilmac-runtime/Wine-COPYING.LIB"
     cp "$SRC/$WINE_DIR/LICENSE" "$root/share/doc/anvilmac-runtime/Wine-LICENSE"
     cp "$BLD/freetype-2.13.3/docs/FTL.TXT" "$root/share/doc/anvilmac-runtime/FreeType-FTL.TXT"
+    cp "$BLD/SDL2-2.32.10/LICENSE.txt" "$root/share/doc/anvilmac-runtime/SDL2-LICENSE.txt"
     cp "$SRC/Vulkan-Loader/LICENSE.txt" "$root/share/doc/anvilmac-runtime/Vulkan-Loader-LICENSE.txt"
     [ -f "$DEPS/MoltenVK-LICENSE" ] && cp "$DEPS/MoltenVK-LICENSE" "$root/share/doc/anvilmac-runtime/MoltenVK-LICENSE"
     cp "$SRC/dxmt/LICENSE" "$root/share/doc/anvilmac-runtime/DXMT-LICENSE" 2>/dev/null || true
@@ -299,6 +308,7 @@ package() {
       echo "Wine patches:"; grep -v '^#' "$REPO/patches/wine/series"
       echo "DXMT patches:"; grep -v '^#' "$REPO/patches/dxmt/series"
       echo "Wine Mono $WINE_MONO_VERSION (unmodified upstream release; its source, wine-mono-$WINE_MONO_VERSION-src.tar.xz, is in the source archive)."
+      echo "SDL 2.32.10 (unmodified upstream release, zlib licence; SDL2-2.32.10.tar.gz is in the source archive)."
       echo "GStreamer $GST_TAG ($GST_COMMIT) with GLib, libffi, PCRE2 and proxy-libintl from its wraps (sources, including the downloaded wraps, in the source archive)."
       echo "Corresponding source: sources-$name.tar, published with this package."; } > "$root/share/doc/anvilmac-runtime/NOTICE-AnvilMac.txt"
     ( cd "$pkg" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 ) > "$pkg/SHA256SUMS"
