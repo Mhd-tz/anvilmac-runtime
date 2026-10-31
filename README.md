@@ -27,14 +27,18 @@ AnvilMac's acceptance tests. Only a tested build run's exact files are released 
 - **DualSense shown as a DualShock 4 or an Xbox 360 controller** (patch 0012, `WINEBUS_DUALSENSE=ds4|xbox`,
   manifest feature `dualsense-presentation`), over USB and Bluetooth, for games whose controller code predates the
   DualSense. Without the variable nothing changes.
+- **MSZIP in the Windows Compression API** (patch 0014): Wine only stubbed `Decompress`, handing back compressed
+  bytes as if unpacked. The Naruto: The Broken Bond PC port unpacks its shaders this way and showed a black screen;
+  it now plays (owner, through D3DMetal).
 - **SDL 2.32.10** (zlib licence) for winebus's SDL backend, so Xbox, Switch and other controllers reach games
   (as Xbox controllers where SDL knows them). Before, this runtime was built without SDL, and winebus kept only the
   pads it reads as raw HID. Patch 0013 keeps SDL away from PlayStation pads, which stay on the raw HID path.
 
 Local builds of this code passed owner tests on 11.19-10 with the owner's DualShock 4 and DualSense (startup,
-in-game reconnect, both PS5 modes over USB and Bluetooth, two players). No non-PlayStation controller was available,
+in-game reconnect, both PS5 modes over USB and Bluetooth, two players); patch 0014 on the first 11.19-11 CI build
+(run 40989772778) with Broken Bond. No non-PlayStation controller was available,
 so the SDL path for other controllers is untested. The exact CI artifact must pass regression checks before release.
-11.19-10 remains the current release. The manifest now also checks `winebus.so` and `libSDL2-2.0.0.dylib`.
+11.19-10 remains the current release. The manifest now also checks `winebus.so`, `libSDL2-2.0.0.dylib` and `cabinet.dll`.
 
 ## 11.19-10 (released 2026-10-28)
 

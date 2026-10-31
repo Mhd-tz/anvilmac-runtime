@@ -1,0 +1,182 @@
+Subject: cabinet: decompress MSZIP buffers in the Compression API.
+Author: AnvilMac contributors (Claude Code), 2026-10-30
+Licence: LGPL-2.1-or-later, same as Wine dlls/cabinet/compressapi.c.
+Provenance: original change against Wine 11.19, source tarball
+73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f.
+Not an upstream commit; not submitted upstream.
+
+CreateDecompressor/Decompress/CloseDecompressor are stubs: Decompress copies
+its input and reports success, so a program receives still-compressed bytes.
+The Naruto: The Broken Bond PC port unpacks its embedded shader data (about
+100 MB, MSZIP in buffer mode) this way at startup and shows a black screen.
+
+Implement MSZIP in buffer mode (no COMPRESS_RAW): check the 24-byte header
+(signature 0a 51 e5 c0, header size, algorithm, uncompressed and block size),
+answer a size query with ERROR_INSUFFICIENT_BUFFER and the uncompressed size,
+and inflate each block ("CK" plus raw deflate) with zlib, continuing the
+previous 32 KB of output as its dictionary, as MSZIP does in cabinets.
+Malformed data fails with ERROR_BAD_COMPRESSION_BUFFER. The decompressor
+handle now records its algorithm. Other algorithms and raw mode keep the
+previous stub behaviour.
+
+Tested 2026-10-30/31 with a local build of this code on exact CI 11.19-11: a
+console program unpacked the port's real 37,990,942-byte container to
+105,221,024 bytes whose SHA-256 matches the one the port stores, in 64- and
+32-bit (unpatched Wine returned the compressed bytes); the owner then played
+the port (40-60 fps through D3DMetal). The format was first checked by
+decompressing the container with Python's zlib against the same SHA-256.
+Reference: Microsoft's Compression API documentation (compressapi.h). No code
+copied.
+---
+--- a/dlls/cabinet/compressapi.c
++++ b/dlls/cabinet/compressapi.c
+@@ -18,11 +18,100 @@
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+  */
+ 
++#include <stdarg.h>
++#include <stdlib.h>
++#include <string.h>
++#include <zlib.h>
++
++#include "windef.h"
++#include "winbase.h"
++#include "winerror.h"
+ #include "compressapi.h"
+ #include "wine/debug.h"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(cabinet);
+ 
++#ifndef COMPRESS_RAW
++#define COMPRESS_RAW (1 << 29)
++#endif
++
++struct decompressor
++{
++    DWORD algorithm;
++};
++
++/* Buffer mode (no COMPRESS_RAW) starts with a 24-byte header: the signature 0a 51 e5 c0, the header size, the
++ * algorithm in byte 7, then the uncompressed size and the block size (little-endian, 64-bit). MSZIP data follows as
++ * blocks: a 32-bit compressed size, "CK" and a raw deflate stream that continues the history of the blocks before
++ * it, as MSZIP does in cabinets. */
++static const BYTE buffer_signature[] = { 0x0a, 0x51, 0xe5, 0xc0 };
++#define BUFFER_HEADER_SIZE 24
++#define MSZIP_HISTORY 32768
++
++static void *zalloc( void *opaque, unsigned int items, unsigned int size )
++{
++    return malloc( (size_t)items * size );
++}
++
++static void zfree( void *opaque, void *ptr )
++{
++    free( ptr );
++}
++
++static BOOL mszip_decompress( const BYTE *data, SIZE_T data_size, BYTE *buffer, SIZE_T buffer_size, SIZE_T *size )
++{
++    ULONGLONG total, block_size;
++    SIZE_T pos = BUFFER_HEADER_SIZE, done = 0, history;
++    z_stream z;
++    DWORD len;
++    int ret;
++
++    if (data_size < BUFFER_HEADER_SIZE || memcmp( data, buffer_signature, sizeof(buffer_signature) )
++        || data[4] != BUFFER_HEADER_SIZE || data[7] != COMPRESS_ALGORITHM_MSZIP) goto bad;
++    memcpy( &total, data + 8, sizeof(total) );
++    memcpy( &block_size, data + 16, sizeof(block_size) );
++    if (!block_size || total != (SIZE_T)total) goto bad;
++    *size = total;
++    if (!buffer || buffer_size < total)
++    {
++        SetLastError( ERROR_INSUFFICIENT_BUFFER );
++        return FALSE;
++    }
++
++    while (done < total)
++    {
++        if (data_size - pos < sizeof(len) + 2) goto bad;
++        memcpy( &len, data + pos, sizeof(len) );
++        pos += sizeof(len);
++        if (len < 2 || len > data_size - pos || data[pos] != 'C' || data[pos + 1] != 'K') goto bad;
++
++        memset( &z, 0, sizeof(z) );
++        z.zalloc = zalloc;
++        z.zfree = zfree;
++        if (inflateInit2( &z, -MAX_WBITS ) != Z_OK) goto bad;
++        history = done < MSZIP_HISTORY ? done : MSZIP_HISTORY;
++        if (history && inflateSetDictionary( &z, buffer + done - history, history ) != Z_OK)
++        {
++            inflateEnd( &z );
++            goto bad;
++        }
++        z.next_in = (Bytef *)data + pos + 2;
++        z.avail_in = len - 2;
++        z.next_out = buffer + done;
++        z.avail_out = total - done < block_size ? total - done : block_size;
++        ret = inflate( &z, Z_FINISH );
++        done += z.total_out;
++        inflateEnd( &z );
++        if (ret != Z_STREAM_END) goto bad;
++        pos += len;
++    }
++    return TRUE;
++
++bad:
++    SetLastError( ERROR_BAD_COMPRESSION_BUFFER );
++    return FALSE;
++}
++
+ /***********************************************************************
+  *		CreateCompressor (CABINET.30)
+  */
+@@ -65,7 +154,24 @@
+  */
+ BOOL WINAPI CreateDecompressor( DWORD algorithm, COMPRESS_ALLOCATION_ROUTINES *routines, DECOMPRESSOR_HANDLE *handle )
+ {
+-    FIXME("algo (%lu) stub\n", algorithm);
++    struct decompressor *decompressor;
++
++    TRACE( "algo %#lx, routines %p, handle %p\n", algorithm, routines, handle );
++
++    if ((algorithm & ~COMPRESS_RAW) != COMPRESS_ALGORITHM_MSZIP || (algorithm & COMPRESS_RAW))
++        FIXME("algo (%lu) stub\n", algorithm);
++    if (!handle)
++    {
++        SetLastError( ERROR_INVALID_PARAMETER );
++        return FALSE;
++    }
++    if (!(decompressor = malloc( sizeof(*decompressor) )))
++    {
++        SetLastError( ERROR_NOT_ENOUGH_MEMORY );
++        return FALSE;
++    }
++    decompressor->algorithm = algorithm;
++    *handle = (DECOMPRESSOR_HANDLE)decompressor;
+     return TRUE;
+ }
+ 
+@@ -75,6 +181,13 @@
+ BOOL WINAPI Decompress( DECOMPRESSOR_HANDLE handle, const VOID *data, SIZE_T data_size,
+                         VOID *buffer, SIZE_T buffer_size, SIZE_T *decompressed_data_size)
+ {
++    struct decompressor *decompressor = (struct decompressor *)handle;
++
++    TRACE( "handle %p, data %p, size %Iu, buffer %p, buffer size %Iu\n", handle, data, data_size, buffer, buffer_size );
++
++    if (decompressor && decompressor->algorithm == COMPRESS_ALGORITHM_MSZIP)
++        return mszip_decompress( data, data_size, buffer, buffer_size, decompressed_data_size );
++
+     FIXME("stub\n");
+ 
+     *decompressed_data_size = data_size;
+@@ -93,6 +206,7 @@
+  */
+ BOOL WINAPI CloseDecompressor( DECOMPRESSOR_HANDLE handle )
+ {
+-    FIXME("stub\n");
++    TRACE( "handle %p\n", handle );
++    free( handle );
+     return TRUE;
+ }

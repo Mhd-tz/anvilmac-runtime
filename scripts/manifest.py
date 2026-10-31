@@ -29,7 +29,7 @@ key_files = ["bin/wine", "bin/wineserver",
              "share/vulkan/icd.d/MoltenVK_icd.json",
              "lib/wine/x86_64-unix/winegstreamer.so", "lib/libgstreamer-1.0.0.dylib", "lib/libglib-2.0.0.dylib"]
 key_files += [f"lib/wine/{a}-windows/{d}.dll" for a in ("x86_64", "i386")
-              for d in ("d3d11", "dxgi", "d3d10core", "winemetal", "user32", "win32u")]
+              for d in ("d3d11", "dxgi", "d3d10core", "winemetal", "user32", "win32u", "cabinet")]
 missing = [f for f in key_files if not os.path.exists(os.path.join(root, f))]
 if missing:
     sys.exit(f"manifest: missing files: {missing}")

@@ -12,3 +12,4 @@
 0011-winebus-Request-DualShock-4-calibration-on-Bluetooth-start.patch
 0012-winebus-Show-a-DualSense-as-a-DualShock-4-or-an-Xbox-controller.patch
 0013-winebus-Keep-SDL-away-from-PlayStation-controllers.patch
+0014-cabinet-Decompress-MSZIP-Compression-API-buffers.patch
