@@ -14,10 +14,10 @@ source tarballs of the other components. Git metadata is excluded.
 
 **Status:** experimental. Built packages are marked experimental and local-only in their manifest until they pass
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
-`runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9` and, current since
-2026-10-28, `runtime-wine-11.19-10`.
+`runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9`, `runtime-wine-11.19-10`
+and, current since 2026-11-01, `runtime-wine-11.19-11`.
 
-## 11.19-11 candidate
+## 11.19-11 (released 2026-11-01)
 
 11.19-10 plus game controller fixes:
 - **DualShock 4 over Bluetooth** (Wine patch 0011): the pad sends basic input reports until it is asked for its
@@ -36,9 +36,12 @@ AnvilMac's acceptance tests. Only a tested build run's exact files are released 
 
 Local builds of this code passed owner tests on 11.19-10 with the owner's DualShock 4 and DualSense (startup,
 in-game reconnect, both PS5 modes over USB and Bluetooth, two players); patch 0014 on the first 11.19-11 CI build
-(run 40989772778) with Broken Bond. No non-PlayStation controller was available,
-so the SDL path for other controllers is untested. The exact CI artifact must pass regression checks before release.
-11.19-10 remains the current release. The manifest now also checks `winebus.so`, `libSDL2-2.0.0.dylib` and `cabinet.dll`.
+(run 40989772778) with Broken Bond. The exact build run 41180866336 (commit c66decb) passed AnvilMac's no-window
+regression checks and the owner's tests (DualSense over USB in Unruly Heroes and Shank, Broken Bond through
+D3DMetal), and was released by `release.yml` (run 41283524299) without a rebuild; package SHA-256
+`4c10830d5a26780c2446cd0d0c1b1db33e4769d27ef74491d1eed2cf4cedf4f7`. No non-PlayStation controller was available,
+so the SDL path for other controllers is untested. The manifest also checks `winebus.so`, `libSDL2-2.0.0.dylib`
+and `cabinet.dll`.
 
 ## 11.19-10 (released 2026-10-28)
 
@@ -61,7 +64,7 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization and is the current release |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 (patches 0011-0014) is the current release |
 | DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5) |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
