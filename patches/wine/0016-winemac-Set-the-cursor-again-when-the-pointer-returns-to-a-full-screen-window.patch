@@ -1,0 +1,68 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] winemac: Set the cursor again when the pointer returns to a macOS full-screen window.
+
+In macOS full screen the pointer can leave the window's content without leaving the app: at the top edge macOS
+reveals the menu bar and title bar, and on displays with a camera housing the strip beside it is outside the window.
+AppKit shows its own arrow there, but Wine's cursor cache (cursorIsCurrent) still says the client's cursor is set, so
+back in the window the arrow stays until the game changes its cursor (owner, Warcraft III, 2026-11-01: "the cursor
+stays like that for a while"). Now, for a window in macOS full screen (NSWindowStyleMaskFullScreen) and an active app,
+when the pointer comes back from a screen edge or from outside the content, the client's cursor is set again once (a
+hidden cursor is hidden again, as patch 0005 does for Wine's own full-screen windows). Ordinary movement inside the
+window changes nothing, so there's no flicker.
+
+Provenance (recorded by AnvilMac, 2026-11-01):
+  Written for AnvilMac by Claude Code; not submitted upstream.
+  Base: wine-11.19, commit 455e3509b98a, with patches 0002, 0005, 0006 and 0015 of this series.
+  File: dlls/winemac.drv/cocoa_app.m (Wine, LGPL-2.1-or-later).
+  License of this change: LGPL-2.1-or-later. Copyright 2026 Mahdi Taziki.
+  Checked: builds (local winemac.so); behaviour pending the owner's game session.
+
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -70,6 +70,10 @@
+ 
+ /* The pointer reached a screen edge while a fullscreen window had the cursor hidden. */
+ static BOOL pointerVisitedScreenEdge;
++
++/* The pointer left a macOS full-screen window's content (screen edge, revealed menu or title bar, the strip beside the
++   camera housing), where AppKit shows its own arrow without Wine knowing. */
++static BOOL pointerLeftNativeFullscreenContent;
+ 
+ static BOOL point_at_screen_edge(NSPoint point)
+ {
+@@ -1395,6 +1399,7 @@
+     - (void) handleMouseMove:(NSEvent*)anEvent
+     {
+         WineWindow* targetWindow;
++        WineWindow* previousTargetWindow = lastTargetWindow;
+         BOOL drag = [anEvent type] != NSEventTypeMouseMoved;
+ 
+         if ([windowsBeingDragged count])
+@@ -1551,6 +1556,27 @@
+         }
+         else
+             pointerVisitedScreenEdge = FALSE;
++
++        /* macOS full screen: once the pointer is back from an edge or from outside the content, set the client's
++           cursor (or its hide) again, once. Our cache can't tell that AppKit replaced it meanwhile. */
++        if (lastTargetWindow && ([lastTargetWindow styleMask] & NSWindowStyleMaskFullScreen) && [NSApp isActive])
++        {
++            if (point_at_screen_edge([NSEvent mouseLocation]))
++                pointerLeftNativeFullscreenContent = TRUE;
++            else if (pointerLeftNativeFullscreenContent)
++            {
++                pointerLeftNativeFullscreenContent = FALSE;
++                cursorIsCurrent = FALSE;
++                if (clientWantsCursorHidden && cursorHidden)
++                {
++                    [NSCursor unhide];
++                    cursorHidden = FALSE;
++                }
++            }
++        }
++        else if (!lastTargetWindow && previousTargetWindow &&
++                 ([previousTargetWindow styleMask] & NSWindowStyleMaskFullScreen))
++            pointerLeftNativeFullscreenContent = TRUE;
+ 
+         [self updateCursor:FALSE];
+     }

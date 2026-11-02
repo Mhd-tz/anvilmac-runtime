@@ -81,7 +81,8 @@ m = {
     # patches/wine/0003: runtime HLSL compiles log begin/end on the "shadertime" channel (off unless WINEDEBUG enables it).
     "diagnostics": ["shader-compile-timing"],
     # Patch 0012: WINEBUS_DUALSENSE=ds4|xbox shows a USB DualSense to a game as a DualShock 4 or Xbox 360 controller.
-    "features": ["dualsense-presentation"],
+    # Patch 0015: WINEMAC_NATIVE_FULLSCREEN=1 puts the first eligible window into macOS full screen (green button).
+    "features": ["dualsense-presentation", "native-fullscreen"],
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
     # GStreamer (winegstreamer): only the runtime's own plugins; the plugin registry in the game's prefix, never the
     # user's home folder (@prefix needs AnvilMac with prefix substitution, 2026-10-27).

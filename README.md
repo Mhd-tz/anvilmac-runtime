@@ -17,6 +17,24 @@ AnvilMac's acceptance tests. Only a tested build run's exact files are released 
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9`, `runtime-wine-11.19-10`
 and, current since 2026-11-01, `runtime-wine-11.19-11`.
 
+## 11.19-12 (in preparation)
+
+11.19-11 plus automatic macOS fullscreen, for games whose own fullscreen changes the display mode to one macOS doesn't
+apply on a scaled Retina display (cropped picture), while a window put into macOS fullscreen with the green button
+works:
+- **Automatic macOS fullscreen** (Wine patch 0015, `WINEMAC_NATIVE_FULLSCREEN=1`, manifest feature
+  `native-fullscreen`): the game's first resizable window enters macOS fullscreen once, as the green button does,
+  at the desktop's resolution. In that fullscreen the menu bar and Dock stay hidden, a resize the game makes itself
+  doesn't shrink the window, and the pointer stays inside the visible area (below the camera housing), so edge
+  scrolling works. Its decisions are logged on the `nativefs` debug channel. Without the variable nothing changes.
+- **Cursor after leaving a fullscreen window's content** (patch 0016): the game's cursor is set again when the
+  pointer comes back from a screen edge or from outside the window, where macOS shows its own arrow.
+
+Local builds of these patches (only `winemac.so` rebuilt on the released 11.19-11) passed AnvilMac's window check
+(test window sizes in 64- and 32-bit, including a resize after entering fullscreen) and the owner's Warcraft III
+sessions (fullscreen, hidden menu bar and Dock, edge scrolling). Known: macOS may still show its arrow over the
+game's cursor on right clicks. Exact CI build tests pending.
+
 ## 11.19-11 (released 2026-11-01)
 
 11.19-10 plus game controller fixes:
@@ -64,7 +82,7 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 (patches 0011-0014) is the current release |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 (patches 0011-0014) is the current release; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`) |
 | DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5) |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |

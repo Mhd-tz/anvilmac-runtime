@@ -13,3 +13,5 @@
 0012-winebus-Show-a-DualSense-as-a-DualShock-4-or-an-Xbox-controller.patch
 0013-winebus-Keep-SDL-away-from-PlayStation-controllers.patch
 0014-cabinet-Decompress-MSZIP-Compression-API-buffers.patch
+0015-winemac-Enter-macOS-full-screen-at-start-when-requested.patch
+0016-winemac-Set-the-cursor-again-when-the-pointer-returns-to-a-full-screen-window.patch

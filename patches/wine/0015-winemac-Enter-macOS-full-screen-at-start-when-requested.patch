@@ -1,0 +1,597 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] winemac: Enter macOS full screen at start when WINEMAC_NATIVE_FULLSCREEN is set.
+
+Some games' own fullscreen changes the display mode to one macOS doesn't actually apply on a scaled Retina display,
+so the window is larger than the screen and the picture is cropped (Warcraft III 1.27 at 2056 x 1285 on a
+1728 x 1117 desktop, 2026-11-01). The same games run correctly in a window put into macOS full screen with the green
+window button, which keeps the desktop's resolution. With WINEMAC_NATIVE_FULLSCREEN=1 (set per launch by AnvilMac):
+- the first window of the process that the green button can put into full screen (Wine gives it
+  NSWindowCollectionBehaviorFullScreenPrimary: resizable, cycled, unparented, not maximized), at least 640 x 400,
+  not already covering a screen and not mid-transition, is put into full screen exactly as that button does, once its
+  frame has stayed the same for one second; once per process, so a player who leaves full screen stays out;
+- in full screen the menu bar and Dock stay hidden (window:willUseFullScreenPresentationOptions: returns
+  HideMenuBar | HideDock, and the app's presentation options are set so again on entering (and 0.5 s later) and
+  after each activation, through an auto-hide step so AppKit sends them even when unchanged: the Dock otherwise came
+  back at the bottom edge until the first click), so the edges, where strategy games scroll, reveal nothing;
+- a frame the game sets itself while in or entering full screen (applying its resolution, with borders) is not
+  applied, so the window keeps filling the screen; the game is told so, and the request is kept for leaving full screen. More than 5
+  such requests a second are let through, so a game that insists can't loop;
+- the pointer stays inside the visible part of the window (-[NSWindow setMouseConfinementRect:], as Wine's ClipCursor
+  support uses; the window's frame within its screen, below the screen's top safe area, i.e. the strip beside the
+  camera housing; not the content view's frame, which once gave 1720 x 962 of a 1728 x 1084 window). Set only when it changes, and again
+  after an activation (which can drop it); a ClipCursor of the game's own takes precedence and ours returns after.
+  (Warping the pointer back instead was tried: laggy at the edge, owner, 2026-11-02.)
+- AppKit shows its arrow over the game's cursor on mouse presses without telling Wine (with the confinement it also
+  announces the app's activation on every left press although it stays frontmost: 28 of 28 traced; right presses
+  showed the arrow too, with no activation and the game re-sending its unchanged cursor). After every button press and
+  release in such a window, and after each activation (then 0.1 s later and on the next mouse move), the client's
+  cursor state is set again. (Keeping right presses from AppKit was tried and didn't help.)
+Without the variable nothing changes. AppKit API (-[NSWindow toggleFullScreen:], NSWindowDelegate presentation
+options) and the undocumented -[NSWindow setMouseConfinementRect:] Wine already relies on; no display-mode change,
+no permission.
+
+Provenance (recorded by AnvilMac, 2026-11-02):
+  Written for AnvilMac by Claude Code; not submitted upstream.
+  Base: wine-11.19, commit 455e3509b98a, with patches 0002, 0005 and 0006 of this series.
+  Files: dlls/winemac.drv/cocoa_app.h, cocoa_app.m, cocoa_window.h, cocoa_window.m, macdrv_cocoa.h, macdrv_main.c
+  (Wine, LGPL-2.1-or-later). License of this change: LGPL-2.1-or-later. Copyright 2026 Mahdi Taziki.
+  Checked (local builds of winemac.so on released 11.19-11; a control rebuilt the same way exports exactly the
+  released file's symbols): AnvilMac Scripts/runtime/native-fullscreen-check.sh: a resizable 800 x 600 test window
+  becomes 1728 x 1084 about 1.1 s after its last frame change (64- and 32-bit, also after an early resize) and stays so
+  when it resizes itself to 1280 x 800 in full screen; unchanged without the variable, on the control, for fixed-size
+  and small windows. Owner, Warcraft III: fullscreen, edge scrolling, menu bar hidden (2026-11-01/02); the arrow after
+  clicks went away on the next move with the activation reassert. Owner, candidate 9: edges fine (confinement traced 1728 x 1084 throughout). Candidate 10: edges and Dock fine (presentation options
+  0x40a after every activation); right-click arrow remained. Refusal while entering: owner session pending (an untraced candidate-11 session
+  had bottom/right edges unreachable again). Full-screen decisions (entering, client frame requests, confinements, presentation options)
+  are traced on their own channel, nativefs, which AnvilMac turns on with the variable, as are
+  the cursor changes Wine makes in such a session (for the remaining right-click arrow).
+
+--- a/dlls/winemac.drv/cocoa_app.h
++++ b/dlls/winemac.drv/cocoa_app.h
+@@ -130,6 +130,8 @@
+     - (WineWindow*) frontWineWindow;
+     - (void) adjustWindowLevels;
+     - (void) updateFullscreenWindows;
++    - (void) reassertClientCursor;
++    - (void) keepDockAndMenuBarHidden;
+ 
+     - (BOOL) handleEvent:(NSEvent*)anEvent;
+     - (void) didSendEvent:(NSEvent*)anEvent;
+--- a/dlls/winemac.drv/cocoa_app.m
++++ b/dlls/winemac.drv/cocoa_app.m
+@@ -26,6 +26,9 @@
+ #import "cocoa_event.h"
+ #import "cocoa_window.h"
+ 
++/* AnvilMac's full-screen decisions only (a few lines a session): WINEDEBUG=+nativefs. */
++WINE_DECLARE_DEBUG_CHANNEL(nativefs);
++
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+ 
+ 
+@@ -165,7 +168,50 @@
+     static void PerformRequest(void *info);
+ 
+ @end
++
++
++/* AppKit reported the app (re)activated: on macOS 27 a click in a macOS full-screen game did that on every press while
++   the game stayed frontmost (owner, Warcraft III, 2026-11-01, +event trace), and each time the system arrow appeared
++   over the game's own cursor and the pointer confinement stopped working. Set both again, including on the next move. */
++static BOOL reassertCursorOnNextMove;
++
++/* WINEMAC_NATIVE_FULLSCREEN: AppKit shows its arrow on mouse presses in a macOS full-screen game without telling us,
++   also on right presses that cause no activation (owner, Warcraft III, 2026-11-02: the game re-sent its unchanged
++   cursor, so Wine did nothing). After every button press and release, the client's cursor is set again. */
++static BOOL key_window_in_native_fullscreen(void)
++{
++    NSWindow* window = [NSApp keyWindow];
++    return enter_native_fullscreen && [window isKindOfClass:[WineWindow class]] &&
++           ([window styleMask] & NSWindowStyleMaskFullScreen);
++}
++
++/* The Dock appeared at the bottom edge of a macOS full-screen game after activations (owner, 2026-11-02) although
++   window:willUseFullScreenPresentationOptions: hid it on entering: keep it and the menu bar hidden for the app. Even
++   with the options already right, the Dock still showed until the first click (activation hand-over at start), so the
++   options are set again through an auto-hide step, which makes AppKit send them to the window server. */
++static void keep_dock_and_menu_bar_hidden(void)
++{
++    NSApplicationPresentationOptions current = [NSApp presentationOptions], wanted, step;
++    const NSApplicationPresentationOptions autoHide = NSApplicationPresentationAutoHideDock |
++                                                      NSApplicationPresentationAutoHideMenuBar |
++                                                      NSApplicationPresentationAutoHideToolbar;
++    const NSApplicationPresentationOptions hide = NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar;
+ 
++    wanted = (current & ~autoHide) | hide;
++    step = (current & ~(autoHide | hide)) | NSApplicationPresentationAutoHideDock | NSApplicationPresentationAutoHideMenuBar;
++    TRACE_(nativefs)("native full screen presentation options 0x%lx -> 0x%lx (via 0x%lx)\n", (unsigned long)current,
++                     (unsigned long)wanted, (unsigned long)step);
++    @try
++    {
++        if (wanted == current)
++            [NSApp setPresentationOptions:step];
++        [NSApp setPresentationOptions:wanted];
++    }
++    @catch (NSException* e)
++    {
++        TRACE_(nativefs)("presentation options refused: %s\n", [[e reason] UTF8String]);
++    }
++}
+ 
+ @implementation WineApplicationController
+ 
+@@ -991,18 +1037,21 @@
+         {
+             if (clientWantsCursorHidden && !cursorHidden)
+             {
++                if (enter_native_fullscreen) TRACE_(nativefs)("cursor: hide\n");
+                 [NSCursor hide];
+                 cursorHidden = TRUE;
+             }
+ 
+             if (!cursorIsCurrent)
+             {
++                if (enter_native_fullscreen) TRACE_(nativefs)("cursor: set client cursor %p\n", cursor);
+                 [cursor set];
+                 cursorIsCurrent = TRUE;
+             }
+ 
+             if (!clientWantsCursorHidden && cursorHidden)
+             {
++                if (enter_native_fullscreen) TRACE_(nativefs)("cursor: unhide (client)\n");
+                 [NSCursor unhide];
+                 cursorHidden = FALSE;
+             }
+@@ -1011,15 +1060,35 @@
+         {
+             if (cursorIsCurrent)
+             {
++                if (enter_native_fullscreen) TRACE_(nativefs)("cursor: arrow (pointer outside Wine windows)\n");
+                 [[NSCursor arrowCursor] set];
+                 cursorIsCurrent = FALSE;
+             }
+             if (cursorHidden)
+             {
++                if (enter_native_fullscreen) TRACE_(nativefs)("cursor: unhide (pointer outside Wine windows)\n");
+                 [NSCursor unhide];
+                 cursorHidden = FALSE;
+             }
++        }
++    }
++
++    /* AppKit may have shown or replaced the cursor behind our cache's back (a new mouse confinement): set the client's
++       cursor and hidden state again, once. */
++    - (void) reassertClientCursor
++    {
++        cursorIsCurrent = FALSE;
++        if (clientWantsCursorHidden && cursorHidden)
++        {
++            [NSCursor unhide];
++            cursorHidden = FALSE;
+         }
++        [self updateCursor:FALSE];
++    }
++
++    - (void) keepDockAndMenuBarHidden
++    {
++        keep_dock_and_menu_bar_hidden();
+     }
+ 
+     - (void) hideCursor
+@@ -1303,6 +1372,13 @@
+         lastSetCursorPositionTime = [[NSProcessInfo processInfo] systemUptime];
+ 
+         [self updateWindowsForCursorClipping];
++
++        /* The client's clip is gone: a macOS full-screen window gets its own confinement back (cocoa_window.m). */
++        for (NSWindow* window in [NSApp windows])
++        {
++            if ([window isKindOfClass:[WineWindow class]])
++                [(WineWindow*)window updateNativeFullscreenConfinement];
++        }
+ 
+         return TRUE;
+     }
+@@ -1865,6 +1941,11 @@
+                  type == NSEventTypeRightMouseDragged || type == NSEventTypeOtherMouseDragged)
+         {
+             [self handleMouseMove:anEvent];
++            if (reassertCursorOnNextMove && lastTargetWindow)
++            {
++                reassertCursorOnNextMove = FALSE;
++                [self reassertClientCursor];
++            }
+             ret = mouseCaptureWindow && ![windowsBeingDragged count];
+         }
+         else if (type == NSEventTypeLeftMouseDown || type == NSEventTypeLeftMouseUp ||
+@@ -1872,6 +1953,15 @@
+                  type == NSEventTypeOtherMouseDown || type == NSEventTypeOtherMouseUp)
+         {
+             [self handleMouseButton:anEvent];
++            if (key_window_in_native_fullscreen())
++            {
++                TRACE_(nativefs)("button event %lu (cursor current %d hidden %d wants hidden %d, target %p)\n",
++                                 (unsigned long)type, cursorIsCurrent, cursorHidden, clientWantsCursorHidden, lastTargetWindow);
++                [self reassertClientCursor];
++                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 20), dispatch_get_main_queue(), ^{
++                    [self reassertClientCursor];
++                });
++            }
+             ret = mouseCaptureWindow && ![windowsBeingDragged count];
+         }
+         else if (type == NSEventTypeScrollWheel)
+@@ -2308,6 +2398,32 @@
+         // movement deltas are invalidated.  Make sure the next mouse move event
+         // starts over from an absolute baseline.
+         forceNextMouseMoveAbsolute = TRUE;
++
++        if (enter_native_fullscreen)
++            [self reassertNativeFullscreenState];
++    }
++
++    /* WINEMAC_NATIVE_FULLSCREEN: after activation, a macOS full-screen window's confinement and the client's cursor
++       state are set again: now, once AppKit has finished activating, and on the next mouse move. */
++    - (void) reassertNativeFullscreenState
++    {
++        BOOL any = FALSE;
++
++        for (NSWindow* window in [NSApp windows])
++        {
++            if ([window isKindOfClass:[WineWindow class]] && ([window styleMask] & NSWindowStyleMaskFullScreen))
++            {
++                [(WineWindow*)window reapplyNativeFullscreenConfinement];
++                any = TRUE;
++            }
++        }
++        if (!any) return;
++        keep_dock_and_menu_bar_hidden();
++        [self reassertClientCursor];
++        reassertCursorOnNextMove = TRUE;
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), dispatch_get_main_queue(), ^{
++            [self reassertClientCursor];
++        });
+     }
+ 
+     - (void)applicationDidResignActive:(NSNotification *)notification
+--- a/dlls/winemac.drv/cocoa_window.h
++++ b/dlls/winemac.drv/cocoa_window.h
+@@ -99,6 +99,8 @@
+ 
+     - (NSInteger) minimumLevelForActive:(BOOL)active;
+     - (void) updateFullscreen;
++    - (void) updateNativeFullscreenConfinement;
++    - (void) reapplyNativeFullscreenConfinement;
+ 
+     - (void) postKeyEvent:(NSEvent *)theEvent;
+     - (void) postBroughtForwardEvent;
+--- a/dlls/winemac.drv/cocoa_window.m
++++ b/dlls/winemac.drv/cocoa_window.m
+@@ -36,6 +36,8 @@
+ #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
+ 
+ WINE_DEFAULT_DEBUG_CHANNEL(macdrv);
++/* AnvilMac's full-screen decisions only (a few lines a session): WINEDEBUG=+nativefs. */
++WINE_DECLARE_DEBUG_CHANNEL(nativefs);
+ 
+ @interface NSWindow (PrivatePreventsActivation)
+ 
+@@ -869,6 +871,29 @@
+ @end
+ 
+ 
++/* Automatic macOS full screen (AnvilMac, WINEMAC_NATIVE_FULLSCREEN): once per process, the first window that is
++   eligible for the green window button and keeps its frame for a second is put into full screen, exactly as that
++   button does. Every show or frame change of an eligible window restarts the second, so splash windows and the
++   game's own early resizes pass first. Never repeated, so a player who leaves full screen stays out. */
++static BOOL native_fullscreen_done;
++static NSUInteger native_fullscreen_generation;
++
++/* Games resize their own window when they apply a resolution. In full screen started this way the window keeps filling
++   the screen and the game is told so; these bound that, so a game that insists is let through (5 refusals a second). */
++static NSTimeInterval native_fullscreen_refusals_since;
++static unsigned int native_fullscreen_refusals;
++
++/* The confinement last applied by updateNativeFullscreenConfinement (window number 0: none). Wine reorders and refocuses
++   windows on clicks; setting the same confinement again each time made the system arrow appear over a game's own
++   cursor (owner, Warcraft III, 2026-11-01), so it is only set when it changes. */
++static NSInteger native_fullscreen_confined_window;
++static NSRect native_fullscreen_confined_rect;
++
++/* -[NSWindow setMouseConfinementRect:], as cocoa_cursorclipping.m uses it for ClipCursor (macOS 10.13+). */
++@interface NSWindow (WineNativeFullscreenConfinement)
++    - (void) setMouseConfinementRect:(NSRect)mouseConfinementRect;
++@end
++
+ @implementation WineWindow
+ 
+     static WineWindow* causing_becomeKeyWindow;
+@@ -1037,6 +1062,7 @@
+         {
+             [self setCollectionBehavior:behavior];
+             [self adjustFeaturesForState];
++            [self scheduleNativeFullscreenAtStart];
+         }
+     }
+ 
+@@ -1704,6 +1730,8 @@
+ 
+             if (![self isExcludedFromWindowsMenu])
+                 [NSApp addWindowsItem:self title:[self title] filename:NO];
++
++            [self scheduleNativeFullscreenAtStart];
+         }
+     }
+ 
+@@ -1820,6 +1848,9 @@
+         [queue discardEventsMatchingMask:event_mask_for_type(WINDOW_FRAME_CHANGED)
+                                forWindow:self];
+ 
++        if (!NSIsEmptyRect(contentRect) && [self keepsNativeFullscreenFrameAgainst:contentRect])
++            return;
++
+         if (!NSIsEmptyRect(contentRect))
+         {
+             NSRect frame, oldFrame;
+@@ -1879,6 +1910,7 @@
+                     /* In case Cocoa adjusted the frame we tried to set, generate a frame-changed
+                        event.  The back end will ignore it if nothing actually changed. */
+                     [self windowDidResize:nil skipSizeMove:TRUE];
++                    [self scheduleNativeFullscreenAtStart];
+                 }
+             }
+         }
+@@ -2442,8 +2474,76 @@
+     {
+         if (!self.disabled && !maximized)
+             [super toggleFullScreen:sender];
++    }
++
++    /* WINEMAC_NATIVE_FULLSCREEN: while this window is in macOS full screen (not entering or leaving it), a frame the
++       client sets (a game applying its resolution, often with window borders) isn't applied: the window would shrink
++       inside the full-screen space, with black around it and the pointer able to leave it. The requested frame is kept
++       for leaving full screen, and the client is told the window still fills the screen, as when it entered. */
++    - (BOOL) keepsNativeFullscreenFrameAgainst:(NSRect)contentRect
++    {
++        NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
++
++        /* Also while entering: a game applying its resolution during macOS's transition otherwise kept that size once
++           in full screen (owner, 2026-11-02: bottom and right edges unreachable again in an untraced session). */
++        if (!enter_native_fullscreen || !(([self styleMask] & NSWindowStyleMaskFullScreen) || enteringFullScreen) ||
++            exitingFullScreen)
++            return FALSE;
++        if (NSEqualSizes(contentRect.size, [self contentRectForFrameRect:self.wine_fractionalFrame].size))
++            return FALSE;
++        TRACE_(nativefs)("client frame %gx%g requested in full screen (entering %d); window %gx%g\n", contentRect.size.width,
++                         contentRect.size.height, enteringFullScreen, NSWidth(self.wine_fractionalFrame),
++                         NSHeight(self.wine_fractionalFrame));
++        if (now - native_fullscreen_refusals_since > 1.0)
++        {
++            native_fullscreen_refusals_since = now;
++            native_fullscreen_refusals = 0;
++        }
++        if (++native_fullscreen_refusals > 5)
++        {
++            TRACE_(nativefs)("more than 5 requests in a second: applied\n");
++            return FALSE;
++        }
++        nonFullscreenFrame = [NSWindow frameRectForContentRect:contentRect
++                                                     styleMask:[self styleMask] & ~NSWindowStyleMaskFullScreen];
++        TRACE_(nativefs)("native full screen keeps its frame instead of the client's %gx%g\n", contentRect.size.width, contentRect.size.height);
++        TRACE("window %p keeps its full-screen frame instead of %gx%g\n", self.hwnd, contentRect.size.width, contentRect.size.height);
++        [self windowDidResize:nil skipSizeMove:TRUE];
++        return TRUE;
+     }
+ 
++    /* Eligible: an ordinary visible top-level window the green button can put in full screen (Wine gives it
++       NSWindowCollectionBehaviorFullScreenPrimary only when resizable, cycled, unparented and not maximized), at
++       least 640 x 400, not already covering a screen on its own and not in or between full-screen transitions. */
++    - (BOOL) eligibleForNativeFullscreenAtStart
++    {
++        NSSize size = [self contentRectForFrameRect:[self frame]].size;
++
++        return [self isVisible] && [self isOnActiveSpace] && ![self isMiniaturized] && !self.disabled && !maximized &&
++               !fullscreen && !enteringFullScreen && !exitingFullScreen &&
++               !([self styleMask] & NSWindowStyleMaskFullScreen) &&
++               ([self collectionBehavior] & NSWindowCollectionBehaviorFullScreenPrimary) &&
++               size.width >= 640 && size.height >= 400;
++    }
++
++    - (void) scheduleNativeFullscreenAtStart
++    {
++        NSUInteger generation;
++
++        if (!enter_native_fullscreen || native_fullscreen_done || ![self eligibleForNativeFullscreenAtStart])
++            return;
++        generation = ++native_fullscreen_generation;
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++            if (generation != native_fullscreen_generation || native_fullscreen_done ||
++                ![self eligibleForNativeFullscreenAtStart])
++                return;
++            native_fullscreen_done = TRUE;
++            TRACE_(nativefs)("entering macOS full screen, window %gx%g\n", NSWidth([self frame]), NSHeight([self frame]));
++            TRACE("entering macOS full screen for window %p (WINEMAC_NATIVE_FULLSCREEN)\n", self.hwnd);
++            [self toggleFullScreen:nil];
++        });
++    }
++
+     - (void) windowDidDrawContent
+     {
+         if (!drawnSinceShown)
+@@ -2682,6 +2782,7 @@
+         if (event)
+             [self flagsChanged:event];
+ 
++        [self updateNativeFullscreenConfinement];
+         if (causing_becomeKeyWindow == self) return;
+ 
+         [controller windowGotFocus:self];
+@@ -2722,13 +2823,97 @@
+             macdrv_event* event = macdrv_create_event(WINDOW_RESIZE_ENDED, self);
+             [queue postEvent:event];
+             macdrv_release_event(event);
++        }
++    }
++
++    /* With WINEMAC_NATIVE_FULLSCREEN, macOS full screen keeps the menu bar and Dock hidden instead of revealing them
++       (with the title bar) when the pointer reaches the top or bottom edge, where games scroll their view. */
++    - (NSApplicationPresentationOptions) window:(NSWindow*)window willUseFullScreenPresentationOptions:(NSApplicationPresentationOptions)proposedOptions
++    {
++        if (!enter_native_fullscreen)
++            return proposedOptions;
++        return (proposedOptions & ~(NSApplicationPresentationAutoHideDock | NSApplicationPresentationAutoHideMenuBar |
++                                    NSApplicationPresentationAutoHideToolbar)) |
++               NSApplicationPresentationFullScreen | NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar;
++    }
++
++    /* With WINEMAC_NATIVE_FULLSCREEN, a window in macOS full screen keeps the pointer inside its content, as ClipCursor
++       to the client area would: the strip beside the camera housing above it is outside the window, so the pointer
++       would leave the game exactly where it scrolls its view. macOS applies a confinement only while the app is
++       frontmost and the window is key. A clip the client sets itself (ClipCursor) takes precedence and replaces this
++       until it is released (-[WineApplicationController stopClippingCursor] calls this again). */
++    - (void) updateNativeFullscreenConfinement
++    {
++        WineApplicationController* controller = [WineApplicationController sharedController];
++        BOOL confine;
++
++        NSRect rect;
++
++        if (!enter_native_fullscreen || ![self respondsToSelector:@selector(setMouseConfinementRect:)])
++            return;
++        if (controller.clippingCursor)
++        {
++            /* The client's clip replaced ours; apply ours again from scratch once it is released. */
++            native_fullscreen_confined_window = 0;
++            return;
++        }
++        confine = ([self styleMask] & NSWindowStyleMaskFullScreen) && !exitingFullScreen && [self isVisible];
++        /* What is visible of the window: its frame within its screen, below the screen's top safe area (the strip
++           beside the camera housing), in window coordinates. Not the content view's frame, which can lag behind or
++           differ (owner, 2026-11-02: confinement 1720 x 962 of a 1728 x 1084 window). */
++        rect = NSZeroRect;
++        if (confine && [self screen])
++        {
++            NSRect visible = [[self screen] frame];
++            if (@available(macOS 12.0, *))
++                visible.size.height -= [[self screen] safeAreaInsets].top;
++            visible = NSIntersectionRect([self frame], visible);
++            if (NSIsEmptyRect(visible))
++                confine = FALSE;
++            else
++                rect = [self convertRectFromScreen:visible];
+         }
++        else
++            confine = FALSE;
++        if (confine && native_fullscreen_confined_window == [self windowNumber] &&
++            NSEqualRects(rect, native_fullscreen_confined_rect))
++            return;
++        if (!confine && native_fullscreen_confined_window != [self windowNumber])
++            return;
++        TRACE_(nativefs)("native full screen confinement %g,%g %gx%g (window frame %g,%g %gx%g, content view %gx%g, key %d active %d)\n",
++                       NSMinX(rect), NSMinY(rect), NSWidth(rect), NSHeight(rect), NSMinX([self frame]), NSMinY([self frame]), NSWidth([self frame]),
++                       NSHeight([self frame]), NSWidth([[self contentView] frame]), NSHeight([[self contentView] frame]),
++                       [self isKeyWindow], [NSApp isActive]);
++        [self setMouseConfinementRect:rect];
++        native_fullscreen_confined_window = confine ? [self windowNumber] : 0;
++        native_fullscreen_confined_rect = rect;
++        [controller reassertClientCursor];
++    }
++
++    /* After the app (re)activates, macOS may have dropped the confinement: set it again even if unchanged. */
++    - (void) reapplyNativeFullscreenConfinement
++    {
++        if (native_fullscreen_confined_window == [self windowNumber])
++            native_fullscreen_confined_window = 0;
++        [self updateNativeFullscreenConfinement];
+     }
+ 
+     - (void) windowDidEnterFullScreen:(NSNotification*)notification
+     {
+         enteringFullScreen = FALSE;
+         enteredFullScreenTime = [[NSProcessInfo processInfo] systemUptime];
++        if (enter_native_fullscreen)
++        {
++            TRACE_(nativefs)("entered macOS full screen, window %g,%g %gx%g\n", NSMinX([self frame]), NSMinY([self frame]),
++                             NSWidth([self frame]), NSHeight([self frame]));
++            [[WineApplicationController sharedController] keepDockAndMenuBarHidden];
++            /* Again once the full-screen Space has settled. */
++            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 2), dispatch_get_main_queue(), ^{
++                if ([self styleMask] & NSWindowStyleMaskFullScreen)
++                    [[WineApplicationController sharedController] keepDockAndMenuBarHidden];
++            });
++        }
++        [self updateNativeFullscreenConfinement];
+         if (pendingOrderOut)
+             [self doOrderOut];
+     }
+@@ -2736,6 +2921,7 @@
+     - (void) windowDidExitFullScreen:(NSNotification*)notification
+     {
+         exitingFullScreen = FALSE;
++        [self updateNativeFullscreenConfinement];
+         [self setFrameAndWineFrame:nonFullscreenFrame];
+         [self windowDidResize:nil];
+         if (pendingOrderOut)
+@@ -2814,11 +3000,13 @@
+ 
+         [[[self contentView] inputContext] invalidateCharacterCoordinates];
+         [self updateFullscreen];
++        [self updateNativeFullscreenConfinement];
+     }
+ 
+     - (void)windowDidResize:(NSNotification *)notification
+     {
+         [self windowDidResize:notification skipSizeMove:FALSE];
++        [self updateNativeFullscreenConfinement];
+     }
+ 
+     - (BOOL)windowShouldClose:(id)sender
+@@ -2877,6 +3065,7 @@
+     - (void) windowWillExitFullScreen:(NSNotification*)notification
+     {
+         exitingFullScreen = TRUE;
++        [self updateNativeFullscreenConfinement];
+         [self postWindowFrameChanged:nonFullscreenFrame fullscreen:FALSE resizing:FALSE skipSizeMove:FALSE];
+     }
+ 
+--- a/dlls/winemac.drv/macdrv_cocoa.h
++++ b/dlls/winemac.drv/macdrv_cocoa.h
+@@ -108,6 +108,7 @@
+ extern bool left_command_is_ctrl;
+ extern bool right_command_is_ctrl;
+ extern bool allow_immovable_windows;
++extern bool enter_native_fullscreen;
+ extern bool use_confinement_cursor_clipping;
+ extern bool cursor_clipping_locks_windows;
+ extern bool use_precise_scrolling;
+--- a/dlls/winemac.drv/macdrv_main.c
++++ b/dlls/winemac.drv/macdrv_main.c
+@@ -27,6 +27,7 @@
+ #include "config.h"
+ #include "macdrv.h"
+ 
++#include <stdlib.h>
+ #include <Security/AuthSession.h>
+ #include <IOKit/pwr_mgt/IOPMLib.h>
+ 
+@@ -47,6 +48,7 @@
+ bool right_command_is_ctrl = false;
+ bool allow_software_rendering = false;
+ bool allow_immovable_windows = true;
++bool enter_native_fullscreen = false;
+ bool use_confinement_cursor_clipping = true;
+ bool cursor_clipping_locks_windows = true;
+ bool use_precise_scrolling = true;
+@@ -372,6 +374,13 @@
+ 
+     retina_on = retina_enabled;
+ 
++    /* WINEMAC_NATIVE_FULLSCREEN=1 (AnvilMac, set per launch): the process's first eligible window enters macOS
++       full screen once, as if the user had pressed its green button (cocoa_window.m). */
++    {
++        const char *native_fullscreen = getenv("WINEMAC_NATIVE_FULLSCREEN");
++        enter_native_fullscreen = native_fullscreen && IS_OPTION_TRUE(native_fullscreen[0]);
++    }
++
+     if (appkey) NtClose(appkey);
+     if (hkey) NtClose(hkey);
+ }
