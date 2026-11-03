@@ -15,3 +15,4 @@
 0014-cabinet-Decompress-MSZIP-Compression-API-buffers.patch
 0015-winemac-Enter-macOS-full-screen-at-start-when-requested.patch
 0016-winemac-Set-the-cursor-again-when-the-pointer-returns-to-a-full-screen-window.patch
+0017-ntdll-server-Mach-semaphore-synchronization-on-macOS-msync.patch

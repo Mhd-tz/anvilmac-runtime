@@ -83,6 +83,14 @@ m = {
     # Patch 0012: WINEBUS_DUALSENSE=ds4|xbox shows a USB DualSense to a game as a DualShock 4 or Xbox 360 controller.
     # Patch 0015: WINEMAC_NATIVE_FULLSCREEN=1 puts the first eligible window into macOS full screen (green button).
     "features": ["dualsense-presentation", "native-fullscreen"],
+    # Patch 0017 (msync): WINEMSYNC=1 does waits on events, mutexes and semaphores with Mach semaphores instead of
+    # wineserver round trips. On for every game launch; Game Settings can turn it off per game. Only the game launch
+    # gets it: AnvilMac's prefix steps end with wineserver -w first, and a process must match its wineserver's setting.
+    "launchFixes": [{"id": "msync", "title": "Fast thread synchronization (msync)",
+                     "detail": "Lets the game's threads wake each other directly through macOS instead of through Wine's "
+                               "central server. Usually smoother in games with many threads. Turn it off if this game "
+                               "won't start or freezes.",
+                     "environment": {"WINEMSYNC": "1"}}],
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
     # GStreamer (winegstreamer): only the runtime's own plugins; the plugin registry in the game's prefix, never the
     # user's home folder (@prefix needs AnvilMac with prefix substitution, 2026-10-27).

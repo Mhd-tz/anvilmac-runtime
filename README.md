@@ -17,6 +17,19 @@ AnvilMac's acceptance tests. Only a tested build run's exact files are released 
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9`, `runtime-wine-11.19-10`,
 `runtime-wine-11.19-11` and, current since 2026-11-02, `runtime-wine-11.19-12`.
 
+## 11.19-13 (in preparation, not released)
+
+11.19-12 plus **msync** (Wine patch 0017, `WINEMSYNC=1`, manifest launch fix `msync`): waits on Windows events,
+mutexes and semaphores use Mach semaphores instead of a round trip through `wineserver`, and uncontended operations
+stay inside the game's process. Ported to Wine 11.19 from CrossOver 26.2.0's published source (msync by Marc-Aurel
+Zent, LGPL-2.1); provenance and changes are in the patch header. Without the variable Wine behaves as before. AnvilMac
+turns it on for game launches, and Game Settings can turn it off per game.
+
+A local build (wineserver and `ntdll.so` from this patch set in a copy of 11.19-12) measured, in a console test under
+Rosetta 2 on an M2 Pro: event set 7.7 to 0.39 us, mutex acquire and release 18.9 to 1.40 us, thread hand-off 24.4 to
+6.2 us, and 73.9 to 12.5 us with five pairs of threads at once. Before release: the exact CI build, AnvilMac's
+regression checks, and the owner's play tests on several games.
+
 ## 11.19-12 (released 2026-11-02)
 
 11.19-11 plus automatic macOS fullscreen, for games whose own fullscreen changes the display mode to one macOS doesn't
