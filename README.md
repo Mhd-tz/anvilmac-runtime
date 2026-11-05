@@ -15,9 +15,9 @@ source tarballs of the other components. Git metadata is excluded.
 **Status:** experimental. Built packages are marked experimental and local-only in their manifest until they pass
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9`, `runtime-wine-11.19-10`,
-`runtime-wine-11.19-11` and, current since 2026-11-02, `runtime-wine-11.19-12`.
+`runtime-wine-11.19-11`, `runtime-wine-11.19-12` and, current since 2026-11-05, `runtime-wine-11.19-13`.
 
-## 11.19-13 (in preparation, not released)
+## 11.19-13 (released 2026-11-05)
 
 11.19-12 plus **msync** (Wine patch 0017, `WINEMSYNC=1`, manifest launch fix `msync`): waits on Windows events,
 mutexes and semaphores use Mach semaphores instead of a round trip through `wineserver`, and uncontended operations
@@ -27,8 +27,12 @@ turns it on for game launches, and Game Settings can turn it off per game.
 
 A local build (wineserver and `ntdll.so` from this patch set in a copy of 11.19-12) measured, in a console test under
 Rosetta 2 on an M2 Pro: event set 7.7 to 0.39 us, mutex acquire and release 18.9 to 1.40 us, thread hand-off 24.4 to
-6.2 us, and 73.9 to 12.5 us with five pairs of threads at once. Before release: the exact CI build, AnvilMac's
-regression checks, and the owner's play tests on several games.
+6.2 us, and 73.9 to 12.5 us with five pairs of threads at once. The exact build run 41898604707 (commit 7b3d81a)
+passed AnvilMac's no-window regression checks (the 11.19-12 set plus msync static checks and the sync test on the
+package: event set 7.7 to 0.38 us, five pairs 73.9 to 9.9 us), and the owner played several games on it; it was
+released by `release.yml` (run 41963046893) without a rebuild; package SHA-256
+`ff86a1a04783614394e2e7e374a8bab8fd2921ffb5dad1119459cf61a7bfb2c2`. Known: msync makes thread synchronization
+cheaper, not every slowdown: Bink videos in the ReXGlue ports stay slow (an issue in the ports, reported upstream).
 
 ## 11.19-12 (released 2026-11-02)
 
@@ -98,7 +102,7 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 (the current release) adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`) |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`); 11.19-13 (the current release) adds msync (patch 0017, `WINEMSYNC`) |
 | DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5) |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
