@@ -1,0 +1,27 @@
+{
+  "testedMacOS": [
+    "27.0.1"
+  ],
+  "license": "LGPL-2.1-or-later (Wine); DXMT v0.80 MIT + LGPL-2.1-or-later changes; MoltenVK and the Vulkan loader Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause; SDL zlib",
+  "graphics": {
+    "wined3d": {
+      "status": "untested",
+      "evidence": "Not separately rated; WineD3D on macOS is capped at FL 9_3 (Phase 0.5). CI run 41898604707 (2026-11-05): 11.19-12's checks pass (console, drive map, timestamps, 32-bit transitions, OpenGL buffers, game video in 64- and 32-bit); msync checks pass. SPORE, Mothville and Keyboard Chaos played by the owner."
+    },
+    "dxmt": {
+      "status": "tested",
+      "evidence": "Carried over from 11.19-12 (DXMT v0.80 unchanged). CI run 41898604707 (2026-11-05): timestamp and console checks pass."
+    },
+    "moltenvk": {
+      "status": "tested",
+      "evidence": "Carried over from 11.19-12 (MoltenVK 1.4.2 unchanged); Rise of a Ninja (Vulkan) played by the owner on CI run 41898604707."
+    },
+    "dxvk": {
+      "status": "absent"
+    },
+    "d3dmetal": {
+      "status": "tested",
+      "evidence": "Loads the user's own imported Game Porting Toolkit 4.0b3 (never shipped), unchanged from 11.19-12; patch 0014 (MSZIP) verified again on CI run 41898604707."
+    }
+  }
+}

@@ -17,6 +17,14 @@ AnvilMac's acceptance tests. Only a tested build run's exact files are released 
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9`, `runtime-wine-11.19-10`,
 `runtime-wine-11.19-11`, `runtime-wine-11.19-12` and, current since 2026-11-05, `runtime-wine-11.19-13`.
 
+**Releasing (from 11.19-14).** After a build run passes testing, commit `releases/<version>.json` (the tested facts:
+`testedMacOS`, each graphics backend's `status` and `evidence`, optionally `license`) and `releases/<version>.md`
+(what's new and known problems, in plain words: AnvilMac shows it in Settings › Runtimes) to `main`, then start
+`release.yml` with the run id and tag. It builds `<package>.release.json` from the run's manifest and those facts and
+signs it with Ed25519 (`<package>.release.json.sig`, Actions secret `RUNTIME_SIGNING_KEY`). AnvilMac lists every
+release and installs one only if its manifest is built into the app or carries a valid signature. `releases/11.19-13.*`
+show the format (11.19-13 itself was released before signing existed).
+
 ## 11.19-13 (released 2026-11-05)
 
 11.19-12 plus **msync** (Wine patch 0017, `WINEMSYNC=1`, manifest launch fix `msync`): waits on Windows events,

@@ -1,7 +1,10 @@
 # Publishes a release from a build that has already been tested: the exact files of a successful `build` run (package,
 # AnvilMac manifest, corresponding source archive, SHA256SUMS), verified again, tagged on the commit that run built.
-# Nothing is rebuilt, so what was tested is what's released. Started by hand only. Free: a standard Linux runner,
-# no build, no secrets beyond the job's own token.
+# Nothing is rebuilt, so what was tested is what's released. Started by hand only. Free: a standard Linux runner, no
+# build. Before it runs, `releases/<version>.json` (the tested facts: testedMacOS, graphics statuses) and
+# `releases/<version>.md` (what's new, known problems; shown in AnvilMac) are committed to main. The job builds the
+# release manifest from them and signs it with the RUNTIME_SIGNING_KEY secret (Ed25519); AnvilMac lists and installs
+# a runtime from GitHub only when that signature checks out with the public key built into the app.
 name: release
 on:
   workflow_dispatch:
@@ -44,11 +47,69 @@ jobs:
           set -euo pipefail
           gh run download "$RUN_ID" -R "$GITHUB_REPOSITORY" -n "anvilmac-runtime-$SHA" -D dist
           cd dist && sha256sum -c SHA256SUMS && ls -la
+      - name: Tested facts and notes for this release (releases/<version>.json and .md on main, written after testing)
+        run: |
+          set -euo pipefail
+          source inputs.sh
+          VERSION="$WINE_VERSION-$RUNTIME_RELEASE"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          git fetch --depth=1 origin main
+          git show "origin/main:releases/$VERSION.json" > tested.json \
+            || { echo "releases/$VERSION.json is missing on main: record the tested facts first"; exit 1; }
+          git show "origin/main:releases/$VERSION.md" > whatsnew.md \
+            || { echo "releases/$VERSION.md is missing on main: write the release notes first"; exit 1; }
+      - name: Signed release manifest (AnvilMac installs a runtime listed on GitHub only with a valid signature)
+        env:
+          SIGNING_KEY: ${{ secrets.RUNTIME_SIGNING_KEY }}
+          # The public half built into AnvilMac (AnvilCore RuntimeSignature.publicKey); a different secret stops the release.
+          EXPECTED_PUBLIC_KEY: NuZy7gCpE5Km105x26P/u+MqNqX5z57E4/23ncfqb/4=
+        run: |
+          set -euo pipefail
+          PKG="$(basename dist/*.tar.xz .tar.xz)"
+          python3 - "$PKG" "$TAG" "$VERSION" "$GITHUB_REPOSITORY" <<'PY'
+          import hashlib, json, os, sys
+          pkg, tag, version, repo = sys.argv[1:5]
+          m = json.load(open(f"dist/{pkg}.manifest.json"))
+          tested = json.load(open("tested.json"))
+          tarball = f"dist/{pkg}.tar.xz"
+          base = f"https://github.com/{repo}/releases/download/{tag}/"
+          m["displayName"] = m["displayName"].replace(" (experimental, CI build)", "")
+          m.update(experimental=False, localOnly=False, role="main", version=version)
+          m["source"].update(url=base + f"{pkg}.tar.xz", sha256=hashlib.sha256(open(tarball, "rb").read()).hexdigest(),
+                             size=os.path.getsize(tarball), sourceCode=base + f"sources-{pkg}.tar")
+          if "license" in tested: m["source"]["license"] = tested["license"]
+          assert tested.get("testedMacOS"), "tested.json: testedMacOS is required"
+          m["host"]["testedMacOS"] = tested["testedMacOS"]
+          backends = {g["id"]: g for g in m["graphics"]}
+          for gid, facts in tested.get("graphics", {}).items():
+              assert gid in backends, f"tested.json: unknown graphics backend {gid}"
+              assert set(facts) <= {"status", "evidence"}, f"tested.json: {gid} may set only status and evidence"
+              assert facts.get("status", "untested") in {"tested", "untested", "broken", "absent"}, f"{gid}: bad status"
+              backends[gid].update(facts)
+          open(f"dist/{pkg}.release.json", "w").write(json.dumps(m, indent=2, sort_keys=True) + "\n")
+          PY
+          cat "dist/$PKG.release.json"
+          umask 077
+          KEY="$RUNNER_TEMP/runtime-signing.pem"
+          trap 'rm -f "$KEY"' EXIT
+          printf '%s\n' "$SIGNING_KEY" > "$KEY"
+          GOT="$(openssl pkey -in "$KEY" -pubout -outform DER | tail -c 32 | base64)"
+          [ "$GOT" = "$EXPECTED_PUBLIC_KEY" ] || { echo "the signing secret doesn't match AnvilMac's public key"; exit 1; }
+          openssl pkeyutl -sign -inkey "$KEY" -rawin -in "dist/$PKG.release.json" -out "dist/$PKG.release.json.sig"
+          openssl pkey -in "$KEY" -pubout -out "$RUNNER_TEMP/runtime-signing.pub"
+          rm -f "$KEY"
+          openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/runtime-signing.pub" -rawin -in "dist/$PKG.release.json" \
+            -sigfile "dist/$PKG.release.json.sig"
+          ls -la dist
       - name: Release notes from the repository at that commit
         run: |
           set -euo pipefail
           source inputs.sh
           {
+            cat whatsnew.md
+            echo
+            echo "---"
+            echo
             echo "AnvilMac runtime: Wine $WINE_VERSION + DXMT $DXMT_TAG, x86_64 (Apple silicon through Rosetta 2)."
             echo
             echo "Built from pinned, checksum-verified sources by build run $RUN_ID (commit $SHA); these are that run's exact files."
@@ -70,13 +131,14 @@ jobs:
             echo "## Files"
             echo
             echo "- the runtime package (\`.tar.xz\`, with \`SHA256SUMS\` of every file inside);"
-            echo "- its AnvilMac runtime manifest (\`.manifest.json\`);"
+            echo "- its AnvilMac runtime manifest (\`.manifest.json\`), and the signed one AnvilMac installs from (\`.release.json\` and \`.release.json.sig\`, Ed25519);"
             echo "- \`sources-….tar\`: the complete corresponding source (LGPL): the exact source tarballs, every patch, the build scripts;"
-            echo "- \`SHA256SUMS\` of the three files."
+            echo "- \`SHA256SUMS\` of the package, the build manifest and the source archive."
           } > notes.md
           cat notes.md
       - name: Create the release
         run: |
           set -euo pipefail
-          gh release create "$TAG" dist/*.tar.xz dist/*.manifest.json dist/sources-*.tar dist/SHA256SUMS \
+          gh release create "$TAG" dist/*.tar.xz dist/*.manifest.json dist/*.release.json dist/*.release.json.sig \
+            dist/sources-*.tar dist/SHA256SUMS \
             -R "$GITHUB_REPOSITORY" --target "$SHA" --title "$TAG" --notes-file notes.md
