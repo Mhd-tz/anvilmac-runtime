@@ -9,3 +9,5 @@
 0004-wine-single-gpu-luid.diff
 # 0005: publish CPU timestamp readback before D3D11 event completion. Local LGPL-2.1+.
 0005-query-readback-before-event.diff
+# 0006: presented frames on Wine's fps debug channel (frame rate in wine.log). Local LGPL-2.1+.
+0006-wine-fps-channel.diff

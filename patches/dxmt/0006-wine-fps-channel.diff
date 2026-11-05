@@ -1,0 +1,124 @@
+Provenance (recorded by AnvilMac, 2026-11-05):
+  Local patch for DXMT v0.80 (589adb780354b461645b29999cefaf533594ee99), after patches 0001-0005.
+  Local changes: LGPL-2.1-or-later. Underlying DXMT v0.80 code remains MIT (see upstream LICENSE).
+  Local implementation Copyright 2026 Mahdi Taziki.
+  DXMT v0.80 writes its frame statistics only to Apple's Metal HUD (GetFrameStatistics is a stub),
+  and reading the HUD's log needs an administrator account on macOS. This reports presented frames
+  on Wine's own "fps" debug channel instead, in the format of WineD3D's wined3d_cs_exec_present
+  ("<swapchain> @ approx N fps" about every 1.5 s), so wine.log readers measure DXMT games too.
+  It calls ntdll's exported __wine_dbg_get_channel_flags/__wine_dbg_header/__wine_dbg_output and
+  does nothing outside Wine or while WINEDEBUG leaves the fps channel off. No Apple code modified.
+
+Subject: [PATCH] dxmt: report presented frames on Wine's fps debug channel
+
+diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
+index 4a7e4b1..04ce120 100644
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -24,11 +24,52 @@
+ #include "dxmt_presenter.hpp"
+ #include <atomic>
+ #include <cfloat>
++#include <cstdio>
+ #include <format>
+ 
+ #define MACDRV_ESCAPE_GET_SURFACE     6790
+ #define MACDRV_ESCAPE_RELEASE_SURFACE 6791
+ 
++/* AnvilMac: presented frames on Wine's "fps" debug channel, in the format of WineD3D's
++ * wined3d_cs_exec_present ("<swapchain> @ approx N fps", about every 1.5 s), so tools that read
++ * wine.log measure DXMT games too (DXMT's own statistics only go to Apple's Metal HUD). It uses
++ * ntdll's exported __wine_dbg_* functions and does nothing outside Wine or while WINEDEBUG leaves
++ * the fps channel off. */
++struct WineFpsChannel {
++  struct Channel { unsigned char flags; char name[15]; };
++  using GetFlags = unsigned char(__cdecl *)(Channel *);
++  using Header = int(__cdecl *)(int, Channel *, const char *);
++  using Output = int(__cdecl *)(const char *);
++  static constexpr int kTrace = 3; /* __WINE_DBCL_TRACE */
++  Channel channel{0xff, "fps"};
++  Header header = nullptr;
++  Output output = nullptr;
++  bool enabled = false;
++
++  WineFpsChannel() {
++    HMODULE ntdll = GetModuleHandleA("ntdll.dll");
++    if (!ntdll)
++      return;
++    auto get_flags = reinterpret_cast<GetFlags>(GetProcAddress(ntdll, "__wine_dbg_get_channel_flags"));
++    header = reinterpret_cast<Header>(GetProcAddress(ntdll, "__wine_dbg_header"));
++    output = reinterpret_cast<Output>(GetProcAddress(ntdll, "__wine_dbg_output"));
++    enabled = get_flags && header && output && (get_flags(&channel) & (1 << kTrace));
++  }
++
++  static WineFpsChannel &get() {
++    static WineFpsChannel instance;
++    return instance;
++  }
++
++  void report(const void *swapchain, double fps) {
++    if (header(kTrace, &channel, "dxmt_present") == -1)
++      return;
++    char line[96];
++    snprintf(line, sizeof(line), "%p @ approx %.2ffps\n", swapchain, fps);
++    output(line);
++  }
++};
++
+ struct macdrv_escape_surface
+ {
+     UINT64 surface; /* Opaque pointer to struct macdrv_client_surface */
+@@ -821,6 +862,7 @@ public:
+         scaler_info.output_height = upscaled->height();
+         ctx.upscale(backbuffer, upscaled, scaler);
+         ctx.present(upscaled, presenter, vsync_duration, state.metadata);
++        this->ReportFrameRate();
+         ReleaseSemaphore(present_semaphore_, 1, nullptr);
+         this->UpdateStatistics(ctx.queue().statistics, ctx.currentFrameId());
+       });
+@@ -831,6 +873,7 @@ public:
+         backbuffer = backbuffer_->texture()
+       ](ArgumentEncodingContext &ctx) mutable {
+         ctx.present(backbuffer, presenter, vsync_duration, state.metadata);
++        this->ReportFrameRate();
+         ReleaseSemaphore(present_semaphore_, 1, nullptr);
+         this->UpdateStatistics(ctx.queue().statistics, ctx.currentFrameId());
+       });
+@@ -844,6 +887,28 @@ public:
+     return hr;
+   };
+ 
++  /* AnvilMac: called after each present, on DXMT's encoding thread (see WineFpsChannel). */
++  void ReportFrameRate() {
++    auto &wine = WineFpsChannel::get();
++    if (!wine.enabled)
++      return;
++    LARGE_INTEGER now, frequency;
++    QueryPerformanceCounter(&now);
++    if (!fps_since_.QuadPart) {
++      fps_since_ = now;
++      fps_frames_ = 0;
++      return;
++    }
++    ++fps_frames_;
++    QueryPerformanceFrequency(&frequency);
++    double elapsed = double(now.QuadPart - fps_since_.QuadPart) / double(frequency.QuadPart);
++    if (elapsed < 1.5)
++      return;
++    wine.report(this, fps_frames_ / elapsed);
++    fps_since_ = now;
++    fps_frames_ = 0;
++  }
++
+   void UpdateStatistics(const FrameStatisticsContainer& statistics, uint64_t frame_id) {
+     hud.begin();
+     auto &frame = statistics.at(frame_id - 1); // show the previous one frame statistics
+@@ -1093,6 +1158,8 @@ private:
+   WMT::Object client_surface_;
+   WMT::MetalLayer layer_weak_;
+   ULONG presentation_count_;
++  LARGE_INTEGER fps_since_ = {}; /* AnvilMac: ReportFrameRate */
++  uint64_t fps_frames_ = 0;
+   DXGI_SWAP_CHAIN_DESC1 desc_;
+   DXGI_SWAP_CHAIN_FULLSCREEN_DESC fullscreen_desc_;
+   D3D11_TEXTURE2D_DESC1 backbuffer_desc_;

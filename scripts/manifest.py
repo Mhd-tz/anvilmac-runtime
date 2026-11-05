@@ -79,7 +79,8 @@ m = {
     # Checked on this build with InputProbe, 64- and 32-bit, 2026-10-16.
     "fixesWineStubs": [{"id": "mouse-in-pointer", "architectures": ["x86_64", "i386"]}],
     # patches/wine/0003: runtime HLSL compiles log begin/end on the "shadertime" channel (off unless WINEDEBUG enables it).
-    "diagnostics": ["shader-compile-timing"],
+    # patches/dxmt/0006: DXMT reports presented frames on Wine's "fps" channel like WineD3D (off unless WINEDEBUG enables it).
+    "diagnostics": ["shader-compile-timing", "dxmt-frame-rate"],
     # Patch 0012: WINEBUS_DUALSENSE=ds4|xbox shows a USB DualSense to a game as a DualShock 4 or Xbox 360 controller.
     # Patch 0015: WINEMAC_NATIVE_FULLSCREEN=1 puts the first eligible window into macOS full screen (green button).
     "features": ["dualsense-presentation", "native-fullscreen"],
