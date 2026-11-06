@@ -1,0 +1,27 @@
+{
+  "testedMacOS": [
+    "27.0.1"
+  ],
+  "license": "LGPL-2.1-or-later (Wine); DXMT v0.80 MIT + LGPL-2.1-or-later changes; MoltenVK and the Vulkan loader Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause; SDL zlib",
+  "graphics": {
+    "wined3d": {
+      "status": "untested",
+      "evidence": "Not separately rated; WineD3D on macOS is capped at FL 9_3 (Phase 0.5). CI run 42103794617 (2026-11-06): 11.19-13's checks pass (console, drive map, timestamps, 32-bit transitions, OpenGL buffers, game video in 64- and 32-bit, msync)."
+    },
+    "dxmt": {
+      "status": "tested",
+      "evidence": "DXMT v0.80 plus patch 0006 (frame rate on Wine's fps channel). CI run 42103794617 (2026-11-06): a hidden 32- and 64-bit Direct3D 11 test reports its frame rate only with the fps channel on; Mothville played by the owner, frame rate measured (60 fps, the cap)."
+    },
+    "moltenvk": {
+      "status": "tested",
+      "evidence": "Carried over from 11.19-13 (MoltenVK 1.4.2 unchanged); CI run 42103794617 console checks pass."
+    },
+    "dxvk": {
+      "status": "absent"
+    },
+    "d3dmetal": {
+      "status": "tested",
+      "evidence": "Loads the user's own imported Game Porting Toolkit 4.0b3 (never shipped), unchanged from 11.19-13; D3D12 and D3D11 device probes pass on CI run 42103794617."
+    }
+  }
+}
