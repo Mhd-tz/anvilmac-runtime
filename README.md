@@ -4,8 +4,8 @@ The Wine runtime AnvilMac runs Windows games with, built from pinned,
 checksum-verified sources by `scripts/build.sh`, locally or in GitHub Actions (`.github/workflows/build.yml`).
 
 **Independent project.** This is not affiliated with, or endorsed by, WineHQ (the Wine project), CodeWeavers,
-Apple, or the DXMT project. Wine, CrossOver, macOS, Metal and DXMT belong to their respective owners; the names are
-used only to say what this build contains.
+Apple, the DXMT project or the x87sidecar project. Wine, CrossOver, macOS, Metal, DXMT and x87sidecar belong to their
+respective owners; the names are used only to say what this build contains.
 
 **Source for every build.** Every published build comes with its full corresponding source, as the LGPL requires:
 `sources-<package>.tar`, published next to the package. It contains the exact Wine source tarball, every patch, the
@@ -127,13 +127,14 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`); 11.19-13 adds msync (patch 0017, `WINEMSYNC`); 11.19-14 (the current release) adds the DXMT frame-rate patch (DXMT 0006) |
-| DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5) |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`); 11.19-13 adds msync (patch 0017, `WINEMSYNC`); 11.19-14 (the current release) adds the DXMT frame-rate patch (DXMT 0006); 11.19-15 (in progress) adds patch 0018: with `ROSETTA_X87_PATH` set, 32-bit processes start under x87sidecar (cooperative handshake from athei/wine, reduced for upstream Wine) |
+| DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5); from 11.19-15 a per-frame timing log (`DXMT_FRAME_LOG`, off unless set) and `DXMT_METAL_CACHE_PATH` for Metal's pipeline cache |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
 | FreeType | 2.13.3 | Wine's font back end |
 | SDL | 2.32.10 | winebus's SDL backend for game controllers other than PlayStation ones (Xbox, Switch and others), zlib licence; PlayStation pads stay on raw HID (patch 0013). From 11.19-11. |
 | Wine Mono | 11.3.0 | .NET for Windows programs; the unmodified upstream release that Wine 11.19 asks for, in `share/wine/mono`. Wine Gecko is not bundled. |
+| x87sidecar | v1.9.1 | Native arm64 helper (`bin/x87sidecar`, built from source, unmodified, MIT, by Alexander Theissen) that runs the x87 floating-point code of 32-bit programs as ARM64 instead of through Rosetta 2's slow x87 path. Used only when AnvilMac sets `ROSETTA_X87_PATH` for a 32-bit game and `x87sidecar --probe` accepts the installed Rosetta. From 11.19-15. |
 | GStreamer | 1.28.8 | Video in games: Wine's winegstreamer (Media Foundation, DirectShow) decodes through macOS's own codecs: VideoToolbox (H.264, HEVC, MPEG-2) and AudioToolbox (AAC, MP3), with the MP4 and Matroska/WebM demuxers; only the needed plugins, no GPL plugins, no FFmpeg. GLib 2.86.3, libffi, PCRE2 and proxy-libintl from GStreamer's pinned wraps. LGPL-2.1-or-later (GStreamer, GLib, proxy-libintl), MIT (libffi), BSD-3-Clause (PCRE2); full sources in the source archive. From 11.19-10. |
 
 **Apple's D3DMetal is not part of this runtime.** Patches 0006-0008 only let Wine load a copy of Apple's Game Porting
@@ -163,6 +164,7 @@ is Wine 12.0 once it ships.
   - DXMT: v0.80 MIT, plus the LGPL changes above;
   - MoltenVK and the Khronos Vulkan loader: Apache-2.0;
   - FreeType: FTL;
+  - x87sidecar: MIT (its `LICENSE`, included as `x87sidecar-LICENSE`; its source is in `sources-….tar`);
   - Wine Mono: mixed: LGPL and MIT for most of Mono, MS-PL and zlib for FNA and its libraries, GPL with an exception
     for SharpZipLib (its `COPYING`, included as `Wine-Mono-COPYING`). Its source tarball is in `sources-….tar`.
 

@@ -5,13 +5,13 @@
 # GitHub Actions (.github/workflows/build.yml). It writes only inside $WORK.
 #
 # Usage: scripts/build.sh <work dir> [stage…]
-#   stages (default: all, in order): fetch toolchain deps gstreamer wine dxmt package
+#   stages (default: all, in order): fetch toolchain deps gstreamer wine dxmt x87sidecar package
 # Output: <work>/out/<package>.tar.xz, <package>.manifest.json, SHA256SUMS, sources-<package>.tar (LGPL source offer)
 set -euo pipefail
 WORK="$(mkdir -p "$1" && cd "$1" && pwd -P)"; shift
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 source "$REPO/inputs.sh"
-STAGES=("$@"); [ ${#STAGES[@]} -gt 0 ] || STAGES=(fetch toolchain deps gstreamer wine dxmt package)
+STAGES=("$@"); [ ${#STAGES[@]} -gt 0 ] || STAGES=(fetch toolchain deps gstreamer wine dxmt x87sidecar package)
 
 DL="$WORK/downloads"; SRC="$WORK/src"; BLD="$WORK/build"; TC="$WORK/toolchain"; DEPS="$WORK/deps"
 STAGE="$WORK/stage"; OUT="$WORK/out"; LOGS="$WORK/logs"
@@ -74,6 +74,7 @@ fetch() {
     git_at "$DXMT_REPO" "$DXMT_TAG" "$DXMT_COMMIT" "$SRC/dxmt" recursive
     git_at "$GST_REPO" "$GST_TAG" "$GST_COMMIT" "$SRC/gstreamer"
     git_at https://github.com/llvm/llvm-project.git "$LLVM_TAG" "$LLVM_COMMIT" "$SRC/llvm-project"
+    git_at "$X87SIDECAR_REPO" "$X87SIDECAR_TAG" "$X87SIDECAR_COMMIT" "$SRC/x87sidecar"
     ( cd "$WORK" && shasum -a 256 downloads/*.* downloads/pip/* ) > "$LOGS/inputs.sha256"
     git -C "$SRC/dxmt" submodule status --recursive > "$LOGS/dxmt-submodules.txt"
 }
@@ -226,6 +227,15 @@ dxmt() {
     done
 }
 
+x87sidecar() {
+    # Native arm64 (Apple's compiler, the toolchain's CMake and Ninja). Only the flat, unentitled x87sidecar binary is
+    # packaged: it attaches cooperatively (Wine patch 0018), so it needs no entitlements.
+    step "x87sidecar $X87SIDECAR_TAG (arm64)"
+    timed x87sidecar-build /bin/bash -c "PATH='$TC/venv/bin:$SYSPATH' cmake -S '$SRC/x87sidecar' -B '$BLD/x87sidecar' -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release && PATH='$TC/venv/bin:$SYSPATH' cmake --build '$BLD/x87sidecar' --target x87sidecar"
+    [ "$(lipo -archs "$BLD/x87sidecar/bin/x87sidecar")" = arm64 ] || fail "x87sidecar is not an arm64 binary"
+}
+
 package() {
     step "package"
     local name="anvilmac-runtime-wine-$WINE_VERSION-$RUNTIME_RELEASE-dxmt-0.80-x86_64" pkg root L f
@@ -246,6 +256,9 @@ package() {
         done
     done
     cp "$(find "$BLD/dxmt-win64/install" -name winemetal.so | head -1)" "$L/wine/x86_64-unix/winemetal.so"
+    # x87sidecar (wine patch 0018): AnvilMac points ROSETTA_X87_PATH here for 32-bit games (manifest launch fix).
+    cp "$BLD/x87sidecar/bin/x87sidecar" "$root/bin/x87sidecar"
+    codesign -f -s - "$root/bin/x87sidecar"
     # Wine Mono, shared install: Wine finds share/wine/mono/wine-mono-<version> and uses it without copying it into
     # each prefix (as in Gcenx's packages). Wine Gecko is not bundled.
     mkdir -p "$root/share/wine/mono"
@@ -295,6 +308,7 @@ package() {
     cp "$SRC/Vulkan-Loader/LICENSE.txt" "$root/share/doc/anvilmac-runtime/Vulkan-Loader-LICENSE.txt"
     [ -f "$DEPS/MoltenVK-LICENSE" ] && cp "$DEPS/MoltenVK-LICENSE" "$root/share/doc/anvilmac-runtime/MoltenVK-LICENSE"
     cp "$SRC/dxmt/LICENSE" "$root/share/doc/anvilmac-runtime/DXMT-LICENSE" 2>/dev/null || true
+    cp "$SRC/x87sidecar/LICENSE" "$root/share/doc/anvilmac-runtime/x87sidecar-LICENSE"
     cp "$SRC/gstreamer/subprojects/gstreamer/COPYING" "$root/share/doc/anvilmac-runtime/GStreamer-COPYING"
     cp "$(ls -d "$SRC"/gstreamer/subprojects/glib-*/ | head -1)COPYING" "$root/share/doc/anvilmac-runtime/GLib-COPYING"
     cp "$(ls -d "$SRC"/gstreamer/subprojects/libffi*/ | head -1)LICENSE" "$root/share/doc/anvilmac-runtime/libffi-LICENSE"
@@ -310,6 +324,7 @@ package() {
       echo "Wine Mono $WINE_MONO_VERSION (unmodified upstream release; its source, wine-mono-$WINE_MONO_VERSION-src.tar.xz, is in the source archive)."
       echo "SDL 2.32.10 (unmodified upstream release, zlib licence; SDL2-2.32.10.tar.gz is in the source archive)."
       echo "GStreamer $GST_TAG ($GST_COMMIT) with GLib, libffi, PCRE2 and proxy-libintl from its wraps (sources, including the downloaded wraps, in the source archive)."
+      echo "x87sidecar $X87SIDECAR_TAG ($X87SIDECAR_COMMIT), unmodified, MIT licence, built from source (in the source archive) as bin/x87sidecar."
       echo "Corresponding source: sources-$name.tar, published with this package."; } > "$root/share/doc/anvilmac-runtime/NOTICE-AnvilMac.txt"
     ( cd "$pkg" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 shasum -a 256 ) > "$pkg/SHA256SUMS"
     ( cd "$OUT" && tar -cJf "$name.tar.xz" "$name" )
@@ -317,7 +332,7 @@ package() {
     # Patches and a Git URL alone do not include the corresponding DXMT source. Exclude Git metadata and the
     # build marker, not source files. The other Git-fetched library sources are included too.
     ( cd "$WORK" && tar --exclude=.git --exclude=.anvil-patched -cf "$OUT/sources-$name.tar" \
-        downloads/*.tar* src/dxmt src/Vulkan-Headers src/Vulkan-Loader src/gstreamer \
+        downloads/*.tar* src/dxmt src/Vulkan-Headers src/Vulkan-Loader src/gstreamer src/x87sidecar \
         -C "$REPO" LICENSE README.md inputs.sh requirements.txt patches scripts .github )
     python3 "$REPO/scripts/manifest.py" "$pkg" "$OUT/$name.manifest.json"
     ( cd "$OUT" && shasum -a 256 "$name.tar.xz" "sources-$name.tar" "$name.manifest.json" ) > "$OUT/SHA256SUMS"

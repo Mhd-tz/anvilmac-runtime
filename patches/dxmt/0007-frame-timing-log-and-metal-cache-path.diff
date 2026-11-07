@@ -1,0 +1,306 @@
+Subject: d3d11, dxgi: per-frame timing log (DXMT_FRAME_LOG) and Metal cache path (DXMT_METAL_CACHE_PATH).
+Author: AnvilMac contributors (Claude Code), 2026-11-06.
+Licence: LGPL-2.1-or-later (AnvilMac's changes to DXMT, as patches 0001-0006 of this series; DXMT itself is MIT).
+Provenance: written for AnvilMac against DXMT v0.80 (589adb780354b461645b29999cefaf533594ee99) after 0001-0006.
+Not submitted upstream.
+
+With DXMT_FRAME_LOG=<absolute macOS folder>, each process writes <folder>/dxmt-frames-<pid>-<ms since 1970>.tsv: every Present
+(time since the previous one), every wait for a pipeline that wasn't ready (graphics, compute, geometry,
+tessellation), every pipeline creation and every shader-variant compile (DXMT shader-cache hit or miss), with
+microsecond times. Buffered, written about once a second and at exit. Unset: nothing is recorded or allocated.
+Also DXMT_METAL_CACHE_PATH=<absolute macOS folder>: Metal's pipeline cache there instead of
+<user cache>/dxmt/<exe>/com.apple.metal (DXMT_SHADER_CACHE_PATH already moves DXMT's own shader database).
+---
+diff --git a/src/d3d11/d3d11_frame_log.hpp b/src/d3d11/d3d11_frame_log.hpp
+new file mode 100644
+index 0000000..428733f
+--- /dev/null
++++ b/src/d3d11/d3d11_frame_log.hpp
+@@ -0,0 +1,127 @@
++#pragma once
++/* AnvilMac: per-frame timing log for stutter measurements (experimental, local builds only).
++ *
++ * With DXMT_FRAME_LOG set to an absolute macOS folder, each process writes
++ * <folder>/dxmt-frames-<pid>-<start time in ms since 1970>.tsv (Wine's pids restart with every wineserver), one
++ * line per event: "<kind>\t<t_us>\t<value_us>[\t<tag>]".
++ *   P  Present call; value = time since the previous Present on any swapchain (CPU frame time)
++ *   W  draw or dispatch waited for a pipeline that was not ready; value = wait; tag g/c/s/t
++ *   R  render pipeline created (newRenderPipelineState); value = duration; tag g/s/t
++ *   K  compute pipeline created; value = duration
++ *   H  shader variant compiled from DXMT's shader cache (hit); value = duration
++ *   M  shader variant compiled without a cache entry (miss); value = duration
++ * t_us is QueryPerformanceCounter time in microseconds. Lines are buffered and written about once a second
++ * from the thread that records, and at process exit; nothing is recorded or allocated when the variable is unset. */
++#include "util_env.hpp"
++#include <windows.h>
++#include <atomic>
++#include <cstdint>
++#include <cstdio>
++#include <cstdlib>
++#include <mutex>
++#include <string>
++
++namespace dxmt::framelog {
++
++class Log {
++public:
++  static Log &get() {
++    static Log *instance = new Log; /* never destroyed: may be used during process exit */
++    return *instance;
++  }
++
++  bool on() const { return file_ != INVALID_HANDLE_VALUE; }
++
++  int64_t now() const {
++    LARGE_INTEGER c;
++    QueryPerformanceCounter(&c);
++    return (c.QuadPart / freq_) * 1000000 + (c.QuadPart % freq_) * 1000000 / freq_;
++  }
++
++  void present() {
++    int64_t t = now(), last = last_present_.exchange(t, std::memory_order_relaxed);
++    record('P', t, last ? t - last : 0, 0);
++  }
++
++  void record(char kind, int64_t t, int64_t value, char tag) {
++    char line[64];
++    int n = tag ? snprintf(line, sizeof(line), "%c\t%lld\t%lld\t%c\n", kind, (long long)t, (long long)value, tag)
++                : snprintf(line, sizeof(line), "%c\t%lld\t%lld\n", kind, (long long)t, (long long)value);
++    if (n <= 0)
++      return;
++    std::lock_guard<std::mutex> lock(mutex_);
++    buffer_.append(line, n);
++    if (t - last_flush_ >= 1000000 || buffer_.size() >= 256 * 1024) {
++      write_locked();
++      last_flush_ = t;
++    }
++  }
++
++  void flush() {
++    std::lock_guard<std::mutex> lock(mutex_);
++    write_locked();
++  }
++
++private:
++  void write_locked() {
++    if (buffer_.empty())
++      return;
++    DWORD written;
++    WriteFile(file_, buffer_.data(), (DWORD)buffer_.size(), &written, nullptr);
++    buffer_.clear();
++  }
++
++  Log() {
++    auto dir = env::getEnvVar("DXMT_FRAME_LOG");
++    if (dir.empty() || dir[0] != '/')
++      return;
++    LARGE_INTEGER f;
++    QueryPerformanceFrequency(&f);
++    freq_ = f.QuadPart ? f.QuadPart : 1;
++    FILETIME ft;
++    GetSystemTimeAsFileTime(&ft);
++    uint64_t ms = ((uint64_t(ft.dwHighDateTime) << 32 | ft.dwLowDateTime) - 116444736000000000ULL) / 10000;
++    std::string path = "Z:" + dir + "/dxmt-frames-" + std::to_string(GetCurrentProcessId()) + "-" +
++                       std::to_string(ms) + ".tsv";
++    for (auto &c : path)
++      if (c == '/')
++        c = '\\';
++    file_ = CreateFileA(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
++                        FILE_ATTRIBUTE_NORMAL, nullptr);
++    if (on()) {
++      buffer_ = "# kind\tt_us\tvalue_us\ttag\n";
++      std::atexit([] { Log::get().flush(); }); /* runs at DLL detach / process exit */
++    }
++  }
++
++  HANDLE file_ = INVALID_HANDLE_VALUE;
++  int64_t freq_ = 1;
++  std::atomic<int64_t> last_present_{0};
++  std::mutex mutex_;
++  std::string buffer_;
++  int64_t last_flush_ = 0;
++};
++
++/* Times a scope and records it as <kind> when the log is on. */
++struct Timer {
++  char kind, tag;
++  bool active = Log::get().on();
++  int64_t start = active ? Log::get().now() : 0;
++  ~Timer() {
++    if (active) {
++      auto &log = Log::get();
++      int64_t t = log.now();
++      log.record(kind, t, t - start, tag);
++    }
++  }
++};
++
++/* Waits for a pipeline; records a W line only when it was not ready yet. */
++inline void wait_ready(std::atomic_bool &ready, char tag) {
++  if (ready.load(std::memory_order_acquire))
++    return;
++  Timer timer{'W', tag};
++  ready.wait(false, std::memory_order_acquire);
++}
++
++} // namespace dxmt::framelog
+diff --git a/src/d3d11/d3d11_pipeline.cpp b/src/d3d11/d3d11_pipeline.cpp
+index 8ea32be..fc69365 100644
+--- a/src/d3d11/d3d11_pipeline.cpp
++++ b/src/d3d11/d3d11_pipeline.cpp
+@@ -1,3 +1,4 @@
++#include "d3d11_frame_log.hpp"
+ #include "Metal.hpp"
+ #include "d3d11_private.h"
+ #include "d3d11_pipeline.hpp"
+@@ -47,7 +48,7 @@ public:
+   }
+ 
+   void GetPipeline(MTL_COMPILED_GRAPHICS_PIPELINE *pPipeline) final {
+-    ready_.wait(false, std::memory_order_acquire);
++    framelog::wait_ready(ready_, 'g');
+     *pPipeline = {state_};
+   }
+ 
+@@ -96,7 +97,8 @@ public:
+     info.immutable_vertex_buffers = (1 << 16) | (1 << 29) | (1 << 30);
+     info.immutable_fragment_buffers = (1 << 29) | (1 << 30);
+ 
+-    state_ = device_->GetMTLDevice().newRenderPipelineState(info, err);
++    { framelog::Timer timer{'R', 'g'};
++    state_ = device_->GetMTLDevice().newRenderPipelineState(info, err); }
+ 
+     if (state_ == nullptr) {
+       ERR("Failed to create PSO: ", err.description().getUTF8String());
+@@ -151,7 +153,7 @@ public:
+   }
+ 
+   void GetPipeline(MTL_COMPILED_COMPUTE_PIPELINE *pPipeline) final {
+-    ready_.wait(false, std::memory_order_acquire);
++    framelog::wait_ready(ready_, 'c');
+     *pPipeline = {state_};
+   }
+ 
+@@ -172,7 +174,8 @@ public:
+     info.tgsize_is_multiple_of_sgwidth = tgsize_is_multiple_of_sgwidth;
+     info.immutable_buffers = (1 << 29) | (1 << 30);
+ 
+-    state_ = device_->GetMTLDevice().newComputePipelineState(info, err);
++    { framelog::Timer timer{'K', 0};
++    state_ = device_->GetMTLDevice().newComputePipelineState(info, err); }
+ 
+     if (!state_) {
+       ERR("Failed to create compute PSO: ", err.description().getUTF8String());
+diff --git a/src/d3d11/d3d11_pipeline_gs.cpp b/src/d3d11/d3d11_pipeline_gs.cpp
+index a81dc9f..e3040f2 100644
+--- a/src/d3d11/d3d11_pipeline_gs.cpp
++++ b/src/d3d11/d3d11_pipeline_gs.cpp
+@@ -1,3 +1,4 @@
++#include "d3d11_frame_log.hpp"
+ #include "Metal.hpp"
+ #include "airconv_public.h"
+ #include "d3d11_device.hpp"
+@@ -43,7 +44,7 @@ public:
+   }
+ 
+   void GetPipeline(MTL_COMPILED_GRAPHICS_PIPELINE *pPipeline) final {
+-    ready_.wait(false, std::memory_order_acquire);
++    framelog::wait_ready(ready_, 's');
+     *pPipeline = {state_mesh_};
+   }
+ 
+@@ -111,7 +112,8 @@ public:
+ 
+     info.raster_sample_count = SampleCount;
+ 
+-    state_mesh_ = device_->GetMTLDevice().newRenderPipelineState(info, err);
++    { framelog::Timer timer{'R', 's'};
++    state_mesh_ = device_->GetMTLDevice().newRenderPipelineState(info, err); }
+ 
+     if (state_mesh_ == nullptr) {
+       ERR("Failed to create mesh PSO: ", err.description().getUTF8String());
+diff --git a/src/d3d11/d3d11_pipeline_ts.cpp b/src/d3d11/d3d11_pipeline_ts.cpp
+index cd087fb..c59e4d5 100644
+--- a/src/d3d11/d3d11_pipeline_ts.cpp
++++ b/src/d3d11/d3d11_pipeline_ts.cpp
+@@ -1,3 +1,4 @@
++#include "d3d11_frame_log.hpp"
+ #include "Metal.hpp"
+ #include "airconv_public.h"
+ #include "d3d11_device.hpp"
+@@ -63,7 +64,7 @@ public:
+   }
+ 
+   void GetPipeline(MTL_COMPILED_TESSELLATION_MESH_PIPELINE *pPipeline) final {
+-    ready_.wait(false, std::memory_order_acquire);
++    framelog::wait_ready(ready_, 't');
+     *pPipeline = {state_rasterization_, hull_reflection.NumOutputElement,
+                   hull_reflection.ThreadsPerPatch};
+   }
+@@ -145,6 +146,7 @@ public:
+ 
+     {
+       std::lock_guard<dxmt::mutex> lock(ts_global_mutex);
++      framelog::Timer timer{'R', 't'};
+       state_rasterization_ =
+           device_->GetMTLDevice().newRenderPipelineState(info, err);
+     }
+diff --git a/src/d3d11/d3d11_shader.cpp b/src/d3d11/d3d11_shader.cpp
+index 687b94a..d447b5e 100644
+--- a/src/d3d11/d3d11_shader.cpp
++++ b/src/d3d11/d3d11_shader.cpp
+@@ -1,3 +1,4 @@
++#include "d3d11_frame_log.hpp"
+ #include "d3d11_shader.hpp"
+ #include "Metal.hpp"
+ #include "airconv_public.h"
+@@ -47,6 +48,7 @@ public:
+ 
+   ThreadpoolWork *
+   RunThreadpoolWork() {
++    framelog::Timer timer{'M', 0}; /* becomes H when the variant came from DXMT's shader cache */
+     auto pool = WMT::MakeAutoreleasePool();
+     WMT::Reference<WMT::Error> err;
+     WMT::Reference<WMT::DispatchData> lib_data = shader_->find_cached_variant(variant_digest_);
+@@ -69,6 +71,8 @@ public:
+       }
+       break;
+     }
++    if (lib_data)
++      timer.kind = 'H';
+ 
+     if (!lib_data) {
+       SM50_COMPILED_BITCODE bitcode;
+diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
+index 04ce120..b3f9466 100644
+--- a/src/d3d11/d3d11_swapchain.cpp
++++ b/src/d3d11/d3d11_swapchain.cpp
+@@ -1,3 +1,4 @@
++#include "d3d11_frame_log.hpp"
+ #include "d3d11_swapchain.hpp"
+ #include "com/com_guid.hpp"
+ #include "config/config.hpp"
+@@ -822,6 +823,9 @@ public:
+     if (PresentFlags & DXGI_PRESENT_TEST)
+       return hr;
+ 
++    if (framelog::Log::get().on())
++      framelog::Log::get().present();
++
+     if (should_exit_fs)
+       SetFullscreenState(FALSE, nullptr);
+ 
+diff --git a/src/dxgi/dxgi.cpp b/src/dxgi/dxgi.cpp
+index cb1a6cf..8df5b82 100644
+--- a/src/dxgi/dxgi.cpp
++++ b/src/dxgi/dxgi.cpp
+@@ -54,6 +54,9 @@ static void InitializeMetalCachePath() {
+     return;
+   // This is the framework cache (mainly for PSOs), not managed by DXMT
+   auto metal_cache_path = str::format("dxmt/", env::getExeName(), "/com.apple.metal");
++  /* AnvilMac: DXMT_METAL_CACHE_PATH (absolute macOS folder) places it elsewhere, e.g. per game in AnvilMac's data */
++  if (auto path = env::getEnvVar("DXMT_METAL_CACHE_PATH"); !path.empty() && path.starts_with("/"))
++    metal_cache_path = path;
+   if (!WMTSetMetalShaderCachePath(metal_cache_path.c_str())) {
+     Logger::info("Failed to set Metal cache path, fallback to system default");
+   }

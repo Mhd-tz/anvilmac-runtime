@@ -11,3 +11,4 @@
 0005-query-readback-before-event.diff
 # 0006: presented frames on Wine's fps debug channel (frame rate in wine.log). Local LGPL-2.1+.
 0006-wine-fps-channel.diff
+0007-frame-timing-log-and-metal-cache-path.diff

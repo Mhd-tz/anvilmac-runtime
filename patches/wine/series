@@ -16,3 +16,4 @@
 0015-winemac-Enter-macOS-full-screen-at-start-when-requested.patch
 0016-winemac-Set-the-cursor-again-when-the-pointer-returns-to-a-full-screen-window.patch
 0017-ntdll-server-Mach-semaphore-synchronization-on-macOS-msync.patch
+0018-ntdll-Start-i386-processes-under-x87sidecar-when-ROSETTA_X87_PATH-is-set.patch

@@ -71,10 +71,17 @@ GST_REPO=https://gitlab.freedesktop.org/gstreamer/gstreamer.git
 GST_TAG=1.28.8
 GST_COMMIT=1b2a95a1b72787cda146b46df9605b168e5b683b       # LGPL-2.1-or-later
 
+# --- x87sidecar (faster x87 floating-point for 32-bit programs under Rosetta 2; wine patch 0018) -----------------------
+# A native arm64 helper, built from source here (CMake); bundled as bin/x87sidecar. MIT. Third-party project by
+# Alexander Theissen; not affiliated with AnvilMac.
+X87SIDECAR_REPO=https://github.com/athei/x87sidecar.git
+X87SIDECAR_TAG=v1.9.1
+X87SIDECAR_COMMIT=03581e1b5e8465c9e78cea7c20652736a0e02f0a   # v1.9.1 (2026-11-03), MIT
+
 # --- Build settings ----------------------------------------------------------------------------------------------------
 MACOSX_DEPLOYMENT_TARGET=10.15                             # as Gcenx's builds
 # The release number is part of the package folder name and the manifest id, so two releases of the same Wine version
 # can be installed side by side (games pinned to the older one keep working).
-RUNTIME_RELEASE=14
+RUNTIME_RELEASE=15
 RUNTIME_ID=anvilmac-wine-11.19-$RUNTIME_RELEASE-dxmt-0.80-x86_64
 RUNTIME_NAME="AnvilMac Runtime 11.19-$RUNTIME_RELEASE (Wine 11.19 + DXMT 0.80)"

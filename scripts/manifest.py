@@ -27,7 +27,8 @@ key_files = ["bin/wine", "bin/wineserver",
              "lib/wine/x86_64-unix/winebus.so", "lib/libSDL2-2.0.0.dylib",
              "lib/libfreetype.6.dylib", "lib/libvulkan.1.dylib", "lib/libMoltenVK.dylib",
              "share/vulkan/icd.d/MoltenVK_icd.json",
-             "lib/wine/x86_64-unix/winegstreamer.so", "lib/libgstreamer-1.0.0.dylib", "lib/libglib-2.0.0.dylib"]
+             "lib/wine/x86_64-unix/winegstreamer.so", "lib/libgstreamer-1.0.0.dylib", "lib/libglib-2.0.0.dylib",
+             "bin/x87sidecar"]
 key_files += [f"lib/wine/{a}-windows/{d}.dll" for a in ("x86_64", "i386")
               for d in ("d3d11", "dxgi", "d3d10core", "winemetal", "user32", "win32u", "cabinet")]
 missing = [f for f in key_files if not os.path.exists(os.path.join(root, f))]
@@ -44,7 +45,7 @@ m = {
         "version": env["WINE_VERSION"],
         "build": f"{version} from {env['WINE_URL']} (sha256 {env['WINE_SHA']}) + patches/wine/series; "
                  f"DXMT {env['DXMT_TAG']} ({env['DXMT_COMMIT']}) + patches/dxmt/series; MoltenVK {env['MOLTENVK_VERSION']}; "
-                 f"Vulkan loader {env['VULKAN_LOADER_TAG']}",
+                 f"Vulkan loader {env['VULKAN_LOADER_TAG']}; x87sidecar {env['X87SIDECAR_TAG']} ({env['X87SIDECAR_COMMIT']})",
         "metalLayerInterface": "extescape",
     },
     "source": {
@@ -52,7 +53,8 @@ m = {
         "sha256": "0" * 64,
         "sourceCode": "sources-<package>.tar, published with the package (inputs.sh, patches, scripts, source tarballs)",
         "license": "LGPL-2.1-or-later (Wine); DXMT v0.80 MIT + LGPL-2.1-or-later changes; MoltenVK and the Vulkan loader "
-                   "Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause",
+                   "Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause; "
+                   "x87sidecar MIT",
     },
     "host": {"architecture": "x86_64", "translation": "rosetta2", "minimumMacOS": "15.0", "testedMacOS": []},
     "layout": {"root": "Contents/Resources/wine", "wine": "bin/wine", "wineserver": "bin/wineserver"},
@@ -91,7 +93,17 @@ m = {
                      "detail": "Lets the game's threads wake each other directly through macOS instead of through Wine's "
                                "central server. Usually smoother in games with many threads. Turn it off if this game "
                                "won't start or freezes.",
-                     "environment": {"WINEMSYNC": "1"}}],
+                     "environment": {"WINEMSYNC": "1"}},
+                    # Patch 0018 + bin/x87sidecar: x87 floating-point of 32-bit programs as native ARM64 instead of
+                    # Rosetta's slow x87 path. Only i386 games; only when "x87sidecar --probe" accepts this Mac's
+                    # Rosetta. Older AnvilMac versions don't fill in @root: the patch ignores a non-absolute path.
+                    {"id": "x87sidecar", "title": "Faster math for older 32-bit games (x87sidecar)",
+                     "detail": "Runs the old x87 floating-point math of 32-bit games as native Apple silicon code "
+                               "instead of through Rosetta's slow path. Often much smoother in games from before about "
+                               "2012. Turn it off if this game behaves differently or crashes.",
+                     "architectures": ["i386"],
+                     "probe": ["@root/bin/x87sidecar", "--probe"],
+                     "environment": {"ROSETTA_X87_PATH": "@root/bin/x87sidecar"}}],
     # win32u.so loads the Khronos loader, which loads the driver named here (MoltenVK by default).
     # GStreamer (winegstreamer): only the runtime's own plugins; the plugin registry in the game's prefix, never the
     # user's home folder (@prefix needs AnvilMac with prefix substitution, 2026-10-27).
