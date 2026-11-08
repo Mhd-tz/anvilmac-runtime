@@ -15,8 +15,8 @@ source tarballs of the other components. Git metadata is excluded.
 **Status:** experimental. Built packages are marked experimental and local-only in their manifest until they pass
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9`, `runtime-wine-11.19-10`,
-`runtime-wine-11.19-11`, `runtime-wine-11.19-12`, `runtime-wine-11.19-13` and, current since 2026-11-06,
-`runtime-wine-11.19-14` (the first with a signed manifest).
+`runtime-wine-11.19-11`, `runtime-wine-11.19-12`, `runtime-wine-11.19-13`, `runtime-wine-11.19-14` (the first with a
+signed manifest) and, current since 2026-11-07, `runtime-wine-11.19-15`.
 
 **Releasing (from 11.19-14).** After a build run passes testing, commit `releases/<version>.json` (the tested facts:
 `testedMacOS`, each graphics backend's `status` and `evidence`, optionally `license`) and `releases/<version>.md`
@@ -25,6 +25,21 @@ AnvilMac's acceptance tests. Only a tested build run's exact files are released 
 signs it with Ed25519 (`<package>.release.json.sig`, Actions secret `RUNTIME_SIGNING_KEY`). AnvilMac lists every
 release and installs one only if its manifest is built into the app or carries a valid signature. `releases/11.19-13.*`
 show the format (11.19-13 itself was released before signing existed).
+
+## 11.19-15 (released 2026-11-07)
+
+11.19-14 plus **x87sidecar** (Wine patch 0018 and `bin/x87sidecar`, v1.9.1 built from source, MIT): with
+`ROSETTA_X87_PATH` set, every 32-bit process Wine creates starts under x87sidecar, which runs its x87 floating-point
+code as native ARM64 instead of through Rosetta 2's slow x87 path (manifest launch fix `x87sidecar`: i386 games only,
+used when `x87sidecar --probe` accepts the installed Rosetta). Also DXMT patch 0007: a per-frame timing log
+(`DXMT_FRAME_LOG`, off unless set) and `DXMT_METAL_CACHE_PATH`.
+
+The exact build run 42412107704 (commit 793c2ba) passed AnvilMac's no-window release checks (35 static checks,
+32-bit transitions, timestamps, console, drive map, OpenGL buffers, game video, msync, DXMT frame rate unchanged at
+about 120 fps, and an x87 console test: 22.4 s to 0.76 s, 29.5x, same results, hook proven). The owner played Shank,
+Max Payne and SPORE with these patches on a local build (Max Payne median 35 to 120 fps) and chose to release the CI
+build without playing it again. Released by `release.yml` without a rebuild; package SHA-256
+`95aa9bc6d0f5061756aa8c470cff521150fb18dee3661e2f3a0a7ffa248eec99`.
 
 ## 11.19-14 (released 2026-11-06)
 
@@ -127,7 +142,7 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`); 11.19-13 adds msync (patch 0017, `WINEMSYNC`); 11.19-14 (the current release) adds the DXMT frame-rate patch (DXMT 0006); 11.19-15 (in progress) adds patch 0018: with `ROSETTA_X87_PATH` set, 32-bit processes start under x87sidecar (cooperative handshake from athei/wine, reduced for upstream Wine) |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`); 11.19-13 adds msync (patch 0017, `WINEMSYNC`); 11.19-14 adds the DXMT frame-rate patch (DXMT 0006); 11.19-15 (the current release) adds patch 0018: with `ROSETTA_X87_PATH` set, 32-bit processes start under x87sidecar (cooperative handshake from athei/wine, reduced for upstream Wine) |
 | DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5); from 11.19-15 a per-frame timing log (`DXMT_FRAME_LOG`, off unless set) and `DXMT_METAL_CACHE_PATH` for Metal's pipeline cache |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
