@@ -17,3 +17,5 @@
 0016-winemac-Set-the-cursor-again-when-the-pointer-returns-to-a-full-screen-window.patch
 0017-ntdll-server-Mach-semaphore-synchronization-on-macOS-msync.patch
 0018-ntdll-Start-i386-processes-under-x87sidecar-when-ROSETTA_X87_PATH-is-set.patch
+0019-winemac-Don-t-double-HORZRES-and-VERTRES-in-retina-mode.patch
+0020-winemac-Fix-use-after-free-race-in-run_cocoa_app.patch

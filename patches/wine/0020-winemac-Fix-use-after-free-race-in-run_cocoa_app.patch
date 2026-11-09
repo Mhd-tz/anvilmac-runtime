@@ -1,0 +1,70 @@
+Subject: winemac: Fix use-after-free race in run_cocoa_app that skips [NSApp run].
+Author: Alexander Theissen, athei/wine commit df416a601ed883dc654f4db0fd31976c5b245fed (2026-04-09, branch cx-26-patched), applied verbatim.
+Licence: LGPL-2.1-or-later, same as Wine.
+Provenance: https://github.com/athei/wine/commit/df416a601ed883dc654f4db0fd31976c5b245fed. Applied after 0001-0019 to Wine 11.19, source tarball
+73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f. Not submitted upstream by AnvilMac.
+Why (AnvilMac, 2026-11-09): run_cocoa_app reads a variable on macdrv_start_cocoa_app's stack after that function may
+have returned; the Cocoa event loop can then be skipped and the window never gets input. More likely when a tool
+changes thread timing at startup, as x87sidecar (patch 0018) does for 32-bit games. No case seen in AnvilMac yet.
+
+From df416a601ed883dc654f4db0fd31976c5b245fed Mon Sep 17 00:00:00 2001
+From: Alexander Theissen <alex@theissen.io>
+Date: Thu, 9 Apr 2026 19:39:48 +0700
+Subject: [PATCH] winemac: Fix use-after-free race in run_cocoa_app that skips
+ [NSApp run].
+
+run_cocoa_app() accesses startup_info->success after unlocking the
+condition lock that signals macdrv_start_cocoa_app() to return. Since
+startup_info is a local variable on macdrv_start_cocoa_app()'s stack,
+the calling thread may return and destroy the stack frame before
+run_cocoa_app() reaches the `if (created_app && startup_info->success)`
+check. Reading from the freed stack frame yields garbage, causing the
+Cocoa event loop ([NSApp run]) to be skipped.
+
+Without a running event loop, NSApplication never dispatches keyboard
+or mouse events. The window renders normally but is permanently
+unresponsive to input.
+
+The race is timing-dependent and unlikely under normal conditions, but
+becomes reliably reproducible when external factors (such as ptrace
+from a debugger or JIT tool) alter thread scheduling during startup.
+
+Fix by saving startup_info->success to a local variable before the
+unlock, similar to how the lock itself is already retained to prevent
+a mid-unlock deallocation.
+---
+ dlls/winemac.drv/cocoa_main.m | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/winemac.drv/cocoa_main.m b/dlls/winemac.drv/cocoa_main.m
+index 869b3c73e2e..44c7e0fcb45 100644
+--- a/dlls/winemac.drv/cocoa_main.m
++++ b/dlls/winemac.drv/cocoa_main.m
+@@ -65,6 +65,7 @@ static void run_cocoa_app(void* info)
+     struct cocoa_app_startup_info* startup_info = info;
+     NSConditionLock* lock = startup_info->lock;
+     BOOL created_app = FALSE;
++    BOOL success = FALSE;
+ 
+     @autoreleasepool
+     {
+@@ -87,6 +88,10 @@ static void run_cocoa_app(void* info)
+             startup_info->success = TRUE;
+         }
+ 
++        /* Save success to a local before unlocking: startup_info points to
++           the caller's stack frame, which may be gone once we unlock. */
++        success = startup_info->success;
++
+         /* Retain the lock while we're using it, so macdrv_start_cocoa_app()
+            doesn't deallocate it in the middle of us unlocking it. */
+         [lock retain];
+@@ -95,7 +100,7 @@ static void run_cocoa_app(void* info)
+         [lock release];
+     }
+ 
+-    if (created_app && startup_info->success)
++    if (created_app && success)
+     {
+         @autoreleasepool
+         {
