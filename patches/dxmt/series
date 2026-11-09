@@ -1,14 +1,13 @@
-# Applied in order with 'git apply' on DXMT v0.80 (589adb78).
-# 0001: PR #166 head a1aa73fd (3Shain/dxmt), "feat(d3d11): implement getting Metal layer from HWND via ExtEscape" (LGPL-2.1+ changes).
-# 0002: upstream main commit 06065754af91352caaf8db87d4566fecc4124552, fixes air_tessellation.metal with Xcode 27's Metal toolchain.
-# 0003: upstream main commit 1cd369e68fc3fd311fa288a3a74c971d37150495, implements IDXGIFactory4::EnumAdapterByLuid.
+# Applied in order with 'git apply' on DXMT main 647b0020ba5764e5593b12407afd76964fa11e20 (2026-11-02; inputs.sh).
+# Earlier 0002 (upstream 06065754, Xcode 27 Metal fix) and 0003 (upstream 1cd369e6, EnumAdapterByLuid) are part of
+# that commit and were dropped (2026-11-09).
+# 0001: PR #166 head a1aa73fd (3Shain/dxmt, still open 2026-11-09), "feat(d3d11): implement getting Metal layer from HWND via ExtEscape" (LGPL-2.1+ changes).
 0001-pr166-a1aa73fd8a85-ExtEscape-metal-layer.diff
-0002-upstream-06065754af91-metal-compile-fix.diff
-0003-upstream-1cd369e68f-EnumAdapterByLuid.diff
 # 0004: local single-GPU Wine LUID lookup; upstream still uses Metal registryID. LGPL-2.1+.
 0004-wine-single-gpu-luid.diff
 # 0005: publish CPU timestamp readback before D3D11 event completion. Local LGPL-2.1+.
 0005-query-readback-before-event.diff
 # 0006: presented frames on Wine's fps debug channel (frame rate in wine.log). Local LGPL-2.1+.
 0006-wine-fps-channel.diff
+# 0007: per-frame timing log (DXMT_FRAME_LOG) and Metal cache path; rebased 2026-11-09 (include lines only). LGPL-2.1+.
 0007-frame-timing-log-and-metal-cache-path.diff

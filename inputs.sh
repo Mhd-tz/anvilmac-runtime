@@ -61,8 +61,11 @@ WINE_MONO_SRC_SHA=9f4f03285fbeed484980efbb1eba1c19069244aea401d2ff1585e3990782ed
 
 # --- DXMT (Direct3D 10/11 on Metal) ------------------------------------------------------------------------------------
 DXMT_REPO=https://github.com/3Shain/dxmt.git
-DXMT_TAG=v0.80
-DXMT_COMMIT=589adb780354b461645b29999cefaf533594ee99      # v0.80 = MIT; patches/dxmt adds LGPL-2.1+ changes (#166)
+# No DXMT release after v0.80 (2026-04-23). Candidate (2026-11-09): main at 647b002 (2026-11-02), a week before the
+# 2026-11-09 airconv refactors; 384 commits after v0.80. DXMT after v0.80 is LGPL-2.1-or-later (Feifan He for CodeWeavers).
+DXMT_TAG=main             # the branch the pinned commit is on; fetched by commit (git_at)
+DXMT_COMMIT=647b0020ba5764e5593b12407afd76964fa11e20
+DXMT_LABEL=647b002        # in the package folder name, manifest id and display name
 
 # --- GStreamer (video in games: Wine's winegstreamer, decoding with macOS's own codecs) ----------------------------------
 # Monorepo tag; GLib, libffi, PCRE2 and proxy-libintl come from its pinned wrap files (meson verifies each download's
@@ -82,6 +85,6 @@ X87SIDECAR_COMMIT=03581e1b5e8465c9e78cea7c20652736a0e02f0a   # v1.9.1 (2026-11-0
 MACOSX_DEPLOYMENT_TARGET=10.15                             # as Gcenx's builds
 # The release number is part of the package folder name and the manifest id, so two releases of the same Wine version
 # can be installed side by side (games pinned to the older one keep working).
-RUNTIME_RELEASE=15
-RUNTIME_ID=anvilmac-wine-11.19-$RUNTIME_RELEASE-dxmt-0.80-x86_64
-RUNTIME_NAME="AnvilMac Runtime 11.19-$RUNTIME_RELEASE (Wine 11.19 + DXMT 0.80)"
+RUNTIME_RELEASE=16
+RUNTIME_ID=anvilmac-wine-11.19-$RUNTIME_RELEASE-dxmt-$DXMT_LABEL-x86_64
+RUNTIME_NAME="AnvilMac Runtime 11.19-$RUNTIME_RELEASE (Wine 11.19 + DXMT $DXMT_LABEL)"

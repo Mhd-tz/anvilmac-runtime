@@ -52,7 +52,7 @@ m = {
         "url": "(release asset: the .tar.xz next to this manifest)",
         "sha256": "0" * 64,
         "sourceCode": "sources-<package>.tar, published with the package (inputs.sh, patches, scripts, source tarballs)",
-        "license": "LGPL-2.1-or-later (Wine); DXMT v0.80 MIT + LGPL-2.1-or-later changes; MoltenVK and the Vulkan loader "
+        "license": "LGPL-2.1-or-later (Wine); DXMT " + env["DXMT_LABEL"] + " LGPL-2.1-or-later (v0.80 parts MIT); MoltenVK and the Vulkan loader "
                    "Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause; "
                    "x87sidecar MIT",
     },

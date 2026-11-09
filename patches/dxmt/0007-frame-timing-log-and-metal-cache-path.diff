@@ -1,7 +1,9 @@
 Subject: d3d11, dxgi: per-frame timing log (DXMT_FRAME_LOG) and Metal cache path (DXMT_METAL_CACHE_PATH).
 Author: AnvilMac contributors (Claude Code), 2026-11-06.
 Licence: LGPL-2.1-or-later (AnvilMac's changes to DXMT, as patches 0001-0006 of this series; DXMT itself is MIT).
-Provenance: written for AnvilMac against DXMT v0.80 (589adb780354b461645b29999cefaf533594ee99) after 0001-0006.
+Provenance: written for AnvilMac against DXMT v0.80 (589adb780354b461645b29999cefaf533594ee99) after 0001-0006;
+rebased 2026-11-09 onto DXMT main 647b0020ba5764e5593b12407afd76964fa11e20 after 0001, 0004-0006 (only the
+#include lines moved below DXMT's new licence headers; code unchanged).
 Not submitted upstream.
 
 With DXMT_FRAME_LOG=<absolute macOS folder>, each process writes <folder>/dxmt-frames-<pid>-<ms since 1970>.tsv: every Present
@@ -192,15 +194,18 @@ index 8ea32be..fc69365 100644
      if (!state_) {
        ERR("Failed to create compute PSO: ", err.description().getUTF8String());
 diff --git a/src/d3d11/d3d11_pipeline_gs.cpp b/src/d3d11/d3d11_pipeline_gs.cpp
-index a81dc9f..e3040f2 100644
+index efa605e..e516ae3 100644
 --- a/src/d3d11/d3d11_pipeline_gs.cpp
 +++ b/src/d3d11/d3d11_pipeline_gs.cpp
-@@ -1,3 +1,4 @@
+@@ -16,6 +16,7 @@
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+  */
+ 
 +#include "d3d11_frame_log.hpp"
  #include "Metal.hpp"
  #include "airconv_public.h"
  #include "d3d11_device.hpp"
-@@ -43,7 +44,7 @@ public:
+@@ -63,7 +64,7 @@ public:
    }
  
    void GetPipeline(MTL_COMPILED_GRAPHICS_PIPELINE *pPipeline) final {
@@ -209,7 +214,7 @@ index a81dc9f..e3040f2 100644
      *pPipeline = {state_mesh_};
    }
  
-@@ -111,7 +112,8 @@ public:
+@@ -131,7 +132,8 @@ public:
  
      info.raster_sample_count = SampleCount;
  
@@ -220,15 +225,18 @@ index a81dc9f..e3040f2 100644
      if (state_mesh_ == nullptr) {
        ERR("Failed to create mesh PSO: ", err.description().getUTF8String());
 diff --git a/src/d3d11/d3d11_pipeline_ts.cpp b/src/d3d11/d3d11_pipeline_ts.cpp
-index cd087fb..c59e4d5 100644
+index 8b7f1f3..e5036fa 100644
 --- a/src/d3d11/d3d11_pipeline_ts.cpp
 +++ b/src/d3d11/d3d11_pipeline_ts.cpp
-@@ -1,3 +1,4 @@
+@@ -16,6 +16,7 @@
+  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
+  */
+ 
 +#include "d3d11_frame_log.hpp"
  #include "Metal.hpp"
  #include "airconv_public.h"
- #include "d3d11_device.hpp"
-@@ -63,7 +64,7 @@ public:
+ #include "config/config.hpp"
+@@ -91,7 +92,7 @@ public:
    }
  
    void GetPipeline(MTL_COMPILED_TESSELLATION_MESH_PIPELINE *pPipeline) final {
@@ -237,7 +245,7 @@ index cd087fb..c59e4d5 100644
      *pPipeline = {state_rasterization_, hull_reflection.NumOutputElement,
                    hull_reflection.ThreadsPerPatch};
    }
-@@ -145,6 +146,7 @@ public:
+@@ -173,6 +174,7 @@ public:
  
      {
        std::lock_guard<dxmt::mutex> lock(ts_global_mutex);
@@ -246,7 +254,7 @@ index cd087fb..c59e4d5 100644
            device_->GetMTLDevice().newRenderPipelineState(info, err);
      }
 diff --git a/src/d3d11/d3d11_shader.cpp b/src/d3d11/d3d11_shader.cpp
-index 687b94a..d447b5e 100644
+index e11d16c..9d3430c 100644
 --- a/src/d3d11/d3d11_shader.cpp
 +++ b/src/d3d11/d3d11_shader.cpp
 @@ -1,3 +1,4 @@
@@ -272,7 +280,7 @@ index 687b94a..d447b5e 100644
      if (!lib_data) {
        SM50_COMPILED_BITCODE bitcode;
 diff --git a/src/d3d11/d3d11_swapchain.cpp b/src/d3d11/d3d11_swapchain.cpp
-index 04ce120..b3f9466 100644
+index aa82e05..25a532c 100644
 --- a/src/d3d11/d3d11_swapchain.cpp
 +++ b/src/d3d11/d3d11_swapchain.cpp
 @@ -1,3 +1,4 @@
@@ -280,7 +288,7 @@ index 04ce120..b3f9466 100644
  #include "d3d11_swapchain.hpp"
  #include "com/com_guid.hpp"
  #include "config/config.hpp"
-@@ -822,6 +823,9 @@ public:
+@@ -829,6 +830,9 @@ public:
      if (PresentFlags & DXGI_PRESENT_TEST)
        return hr;
  
@@ -291,10 +299,10 @@ index 04ce120..b3f9466 100644
        SetFullscreenState(FALSE, nullptr);
  
 diff --git a/src/dxgi/dxgi.cpp b/src/dxgi/dxgi.cpp
-index cb1a6cf..8df5b82 100644
+index e9d8100..9bc52b0 100644
 --- a/src/dxgi/dxgi.cpp
 +++ b/src/dxgi/dxgi.cpp
-@@ -54,6 +54,9 @@ static void InitializeMetalCachePath() {
+@@ -55,6 +55,9 @@ static void InitializeMetalCachePath() {
      return;
    // This is the framework cache (mainly for PSOs), not managed by DXMT
    auto metal_cache_path = str::format("dxmt/", env::getExeName(), "/com.apple.metal");

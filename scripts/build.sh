@@ -48,7 +48,11 @@ fetch_file() { # fetch_file <url> <sha256> [mirror url…] -> path; any mirror m
     echo "$f"
 }
 git_at() { # git_at <repo> <tag> <commit> <dir> [--recursive]: shallow clone of a tag, commit verified
-    if [ ! -d "$4/.git" ]; then
+    if [ ! -d "$4/.git" ] && [ "$2" = main ]; then   # a pinned commit on a branch (no release tag): fetch that commit
+        { git init -q "$4" && git -C "$4" remote add origin "$1" && git -C "$4" fetch -q --depth 1 origin "$3" &&
+          git -C "$4" checkout -q FETCH_HEAD; } || fail "fetch $1 $3"
+        [ -z "${5:-}" ] || git -C "$4" submodule update -q --init --recursive || fail "submodules of $1"
+    elif [ ! -d "$4/.git" ]; then
         git clone -q --depth 1 --branch "$2" ${5:+--recurse-submodules} "$1" "$4" || fail "clone $1"
     fi
     [ "$(git -C "$4" rev-parse HEAD)" = "$3" ] || fail "$1 $2 is not commit $3"
@@ -238,7 +242,7 @@ x87sidecar() {
 
 package() {
     step "package"
-    local name="anvilmac-runtime-wine-$WINE_VERSION-$RUNTIME_RELEASE-dxmt-0.80-x86_64" pkg root L f
+    local name="anvilmac-runtime-wine-$WINE_VERSION-$RUNTIME_RELEASE-dxmt-$DXMT_LABEL-x86_64" pkg root L f
     pkg="$OUT/$name"; root="$pkg/Contents/Resources/wine"; L="$root/lib"
     rm -rf "$pkg"; mkdir -p "$root"
     cp -R "$STAGE/wine/." "$root/"
@@ -308,6 +312,8 @@ package() {
     cp "$SRC/Vulkan-Loader/LICENSE.txt" "$root/share/doc/anvilmac-runtime/Vulkan-Loader-LICENSE.txt"
     [ -f "$DEPS/MoltenVK-LICENSE" ] && cp "$DEPS/MoltenVK-LICENSE" "$root/share/doc/anvilmac-runtime/MoltenVK-LICENSE"
     cp "$SRC/dxmt/LICENSE" "$root/share/doc/anvilmac-runtime/DXMT-LICENSE" 2>/dev/null || true
+    # DXMT after v0.80 is LGPL-2.1-or-later: its licence text ships too (the full patched source is in the source archive).
+    [ ! -f "$SRC/dxmt/COPYING.LIB" ] || cp "$SRC/dxmt/COPYING.LIB" "$root/share/doc/anvilmac-runtime/DXMT-COPYING.LIB"
     cp "$SRC/x87sidecar/LICENSE" "$root/share/doc/anvilmac-runtime/x87sidecar-LICENSE"
     cp "$SRC/gstreamer/subprojects/gstreamer/COPYING" "$root/share/doc/anvilmac-runtime/GStreamer-COPYING"
     cp "$(ls -d "$SRC"/gstreamer/subprojects/glib-*/ | head -1)COPYING" "$root/share/doc/anvilmac-runtime/GLib-COPYING"
