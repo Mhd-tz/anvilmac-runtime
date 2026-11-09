@@ -40,7 +40,8 @@ timed() { # timed <label> <command…>: logged to logs/<label>.log, wall time an
 fetch_file() { # fetch_file <url> <sha256> [mirror url…] -> path; any mirror must deliver the same file (same checksum)
     local f="$DL/$(basename "$1")" got u
     if [ ! -f "$f" ]; then
-        for u in "$1" "${@:3}"; do curl -fL -sS --retry 3 -o "$f" "$u" && break; rm -f "$f"; done
+        # GitHub release downloads returned 504 for minutes at a time (2026-11-09, three projects): ride it out.
+        for u in "$1" "${@:3}"; do curl -fL -sS --retry 8 --retry-delay 30 --retry-max-time 600 -o "$f" "$u" && break; rm -f "$f"; done
         [ -f "$f" ] || fail "download $1"
     fi
     got="$(shasum -a 256 "$f" | cut -d' ' -f1)"
