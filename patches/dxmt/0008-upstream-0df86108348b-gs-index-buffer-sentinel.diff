@@ -1,0 +1,23 @@
+Provenance (recorded by AnvilMac, 2026-11-10):
+  DXMT upstream commit 0df86108348bab2aaa5c4610a5eb63a9de9047ac (https://github.com/3Shain/dxmt, main,
+  2026-11-10), "fix(airconv): correct index buffer sentinel value check in gs converter" (DXMT contributors).
+  License: LGPL-2.1-or-later (DXMT changes after v0.80). Applied verbatim (index line from 647b002).
+  Fixes upstream 914ae9a (2026-10-26): a draw without an index buffer through a geometry shader took the indexed
+  path and its vertex stage failed to convert ("Failed to create mesh PSO: Invalid vertex shader."). Seen in
+  Void's Cave (Unreal Engine 5 demo, black 3D scene) on 11.19-16 as first built; with this change an original
+  no-window D3D11 probe draws both Draw and DrawIndexed, and Void's Cave draws at 60 fps without errors (owner,
+  2026-11-10). Found and tested here independently; the same one-line fix landed upstream the same day.
+
+diff --git a/src/airconv/dxbc_converter_gs.cpp b/src/airconv/dxbc_converter_gs.cpp
+index 62cd031..d97798d 100644
+--- a/src/airconv/dxbc_converter_gs.cpp
++++ b/src/airconv/dxbc_converter_gs.cpp
+@@ -793,7 +793,7 @@ convert_dxbc_vertex_for_geometry_shader(
+       builder.CreateBr(finalize_index);
+     }
+ 
+-  } else if (index_buffer_idx) {
++  } else if (index_buffer_idx != ~0u) {
+     auto start_index = builder.CreateExtractValue(draw_arguments, 2);
+     auto index_buffer = function->getArg(index_buffer_idx);
+     auto index_buffer_element_type = index_buffer->getType()->getNonOpaquePointerElementType();
