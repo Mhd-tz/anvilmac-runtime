@@ -11,3 +11,5 @@
 0006-wine-fps-channel.diff
 # 0007: per-frame timing log (DXMT_FRAME_LOG) and Metal cache path; rebased 2026-11-09 (include lines only). LGPL-2.1+.
 0007-frame-timing-log-and-metal-cache-path.diff
+# 0008: geometry shader draws without an index buffer (upstream 914ae9a regression, still on main 2026-11-04). LGPL-2.1+.
+0008-gs-draw-without-index-buffer.diff
