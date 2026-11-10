@@ -16,7 +16,7 @@ source tarballs of the other components. Git metadata is excluded.
 AnvilMac's acceptance tests. Only a tested build run's exact files are released (`release.yml`, no rebuild):
 `runtime-wine-11.19-1`, `runtime-wine-11.19-2`, `runtime-wine-11.19-7`, `runtime-wine-11.19-9`, `runtime-wine-11.19-10`,
 `runtime-wine-11.19-11`, `runtime-wine-11.19-12`, `runtime-wine-11.19-13`, `runtime-wine-11.19-14` (the first with a
-signed manifest) and, current since 2026-11-07, `runtime-wine-11.19-15`.
+signed manifest), `runtime-wine-11.19-15` and, current since 2026-11-10, `runtime-wine-11.19-16`.
 
 **Releasing (from 11.19-14).** After a build run passes testing, commit `releases/<version>.json` (the tested facts:
 `testedMacOS`, each graphics backend's `status` and `evidence`, optionally `license`) and `releases/<version>.md`
@@ -25,6 +25,22 @@ signed manifest) and, current since 2026-11-07, `runtime-wine-11.19-15`.
 signs it with Ed25519 (`<package>.release.json.sig`, Actions secret `RUNTIME_SIGNING_KEY`). AnvilMac lists every
 release and installs one only if its manifest is built into the app or carries a valid signature. `releases/11.19-13.*`
 show the format (11.19-13 itself was released before signing existed).
+
+## 11.19-16 (released 2026-11-10)
+
+11.19-15 plus a newer **DXMT**: its main branch at 647b002 (2026-11-02, 384 commits after v0.80; DXMT has made no
+release since v0.80, and its code after v0.80 is LGPL-2.1-or-later). Upstream commits 0002 and 0003 are part of it
+and were dropped; 0007 was rebased. New DXMT patch 0008 is upstream 0df86108 (2026-11-10): from 914ae9a (2026-10-26)
+a draw without an index buffer through a geometry shader failed to convert ("Invalid vertex shader"; Void's Cave drew
+a black 3D scene on the first 11.19-16 build). Two Wine patches from athei/wine, applied verbatim: 0019, GetDeviceCaps
+no longer doubles HORZRES/VERTRES in Retina mode; 0020, a use-after-free race in `run_cocoa_app` that could skip the
+Cocoa event loop (window without input).
+
+The exact build run 42785949989 (commit 6ea1b13) passed AnvilMac's no-window release checks (12 gates: static
+checks, 32-bit transitions, timestamps, console, drive map, OpenGL buffers, game video, msync, DXMT frame rate
+unchanged at about 120 fps, x87sidecar, and a new geometry-shader draw test, 32- and 64-bit). The owner played Void's
+Cave, Mothville and Irreplaceable Turbines on it (Direct3D 11, same frame rates as 11.19-15). Released by
+`release.yml` without a rebuild.
 
 ## 11.19-15 (released 2026-11-07)
 
@@ -142,8 +158,8 @@ not claimed. The manifest also checks the hash of `opengl32.so` before launch.
 
 | Component | Version | Notes |
 |---|---|---|
-| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`); 11.19-13 adds msync (patch 0017, `WINEMSYNC`); 11.19-14 adds the DXMT frame-rate patch (DXMT 0006); 11.19-15 (the current release) adds patch 0018: with `ROSETTA_X87_PATH` set, 32-bit processes start under x87sidecar (cooperative handshake from athei/wine, reduced for upstream Wine) |
-| DXMT | v0.80 | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), one upstream compile fix, upstream's `EnumAdapterByLuid`, a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5); from 11.19-15 a per-frame timing log (`DXMT_FRAME_LOG`, off unless set) and `DXMT_METAL_CACHE_PATH` for Metal's pipeline cache |
+| Wine | 11.19 (development release) | `patches/wine/series`: Gcenx's Vulkan portability patch, and WineHQ MR !11058's ExtEscape handler (Marc-Aurel Zent) rebased onto 11.19; a diagnostic that logs the start and end of runtime HLSL compiles, only when `WINEDEBUG` enables the `shadertime` channel; a fix for x64 SEH target unwinds (C++ catch blocks cleaned up twice); while a window covers the screen, the Dock and menu bar are hidden so screen edges can't bring back the system arrow over a fullscreen game, and a hidden cursor is reasserted only after a screen edge (from 11.19-9; 11.19-7 and earlier reasserted it on every mouse move, which made the cursor flicker); the driver hooks, DLL search order and macOS `%gs` handling that let Wine load the user's own copy of Apple's D3DMetal (Game Porting Toolkit), all switched off unless AnvilMac passes a verified copy; under Rosetta 2 only, far returns instead of far jumps for wow64cpu's 32/64-bit transitions (random wrong-mode crashes in 32-bit programs; from 11.19-6). 11.19-7 combines both; 11.19-9 adds the cursor change and the OpenGL buffer optimization; 11.19-11 added patches 0011-0014; 11.19-12 adds automatic macOS fullscreen for games that ask for it (patches 0015-0016, `WINEMAC_NATIVE_FULLSCREEN`); 11.19-13 adds msync (patch 0017, `WINEMSYNC`); 11.19-14 adds the DXMT frame-rate patch (DXMT 0006); 11.19-15 adds patch 0018: with `ROSETTA_X87_PATH` set, 32-bit processes start under x87sidecar (cooperative handshake from athei/wine, reduced for upstream Wine); 11.19-16 (the current release) adds 0019 (Retina-mode HORZRES/VERTRES not doubled) and 0020 (`run_cocoa_app` race), both from athei/wine |
+| DXMT | main at 647b002 (from 11.19-16; v0.80 before) | Direct3D 10/11 on Metal; `patches/dxmt/series`: PR #166 (ExtEscape), a local Wine LUID lookup when Metal and Wine each expose one GPU, and CPU timestamp readback before event-query completion (from 11.19-5); from 11.19-15 a per-frame timing log (`DXMT_FRAME_LOG`, off unless set) and `DXMT_METAL_CACHE_PATH` for Metal's pipeline cache; from 11.19-16 upstream 0df86108 (geometry shader draws without an index buffer). Up to 11.19-15 the series also held one upstream compile fix and upstream's `EnumAdapterByLuid`, both part of 647b002 |
 | MoltenVK | 1.4.2 | default Vulkan driver, loaded through the Khronos Vulkan loader |
 | Vulkan loader | vulkan-sdk-1.4.363.0 | `VK_DRIVER_FILES` picks the driver; AnvilMac sets it from the runtime manifest |
 | FreeType | 2.13.3 | Wine's font back end |
@@ -176,7 +192,8 @@ is Wine 12.0 once it ships.
   - `patches/dxmt/`: LGPL-2.1-or-later (DXMT releases after v0.80 are LGPL; v0.80 itself is MIT).
 - **Built packages** contain:
   - Wine: LGPL-2.1-or-later;
-  - DXMT: v0.80 MIT, plus the LGPL changes above;
+  - DXMT: from 11.19-16 its main branch at 647b002, LGPL-2.1-or-later (its v0.80 parts MIT; `DXMT-COPYING.LIB`
+    and `DXMT-LICENSE` included); up to 11.19-15 v0.80 (MIT) plus the LGPL changes above;
   - MoltenVK and the Khronos Vulkan loader: Apache-2.0;
   - FreeType: FTL;
   - x87sidecar: MIT (its `LICENSE`, included as `x87sidecar-LICENSE`; its source is in `sources-….tar`);

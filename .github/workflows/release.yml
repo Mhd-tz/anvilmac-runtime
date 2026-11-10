@@ -105,12 +105,14 @@ jobs:
         run: |
           set -euo pipefail
           source inputs.sh
+          # A DXMT release is named by its tag; a pinned commit on a branch by the commit (11.19-16: main at 647b002).
+          DXMT_NAME="$DXMT_TAG"; [ "$DXMT_TAG" != main ] || DXMT_NAME="main at ${DXMT_COMMIT:0:7}"
           {
             cat whatsnew.md
             echo
             echo "---"
             echo
-            echo "AnvilMac runtime: Wine $WINE_VERSION + DXMT $DXMT_TAG, x86_64 (Apple silicon through Rosetta 2)."
+            echo "AnvilMac runtime: Wine $WINE_VERSION + DXMT $DXMT_NAME, x86_64 (Apple silicon through Rosetta 2)."
             echo
             echo "Built from pinned, checksum-verified sources by build run $RUN_ID (commit $SHA); these are that run's exact files."
             echo "Independent project: not affiliated with or endorsed by WineHQ, CodeWeavers, Apple or the DXMT project."
@@ -125,7 +127,7 @@ jobs:
             echo
             echo "## Inputs"
             echo
-            echo "- Wine $WINE_VERSION; DXMT $DXMT_TAG; MoltenVK $MOLTENVK_VERSION; Khronos Vulkan loader $VULKAN_LOADER_TAG; Wine Mono $WINE_MONO_VERSION; FreeType 2.13.3."
+            echo "- Wine $WINE_VERSION; DXMT $DXMT_NAME; MoltenVK $MOLTENVK_VERSION; Khronos Vulkan loader $VULKAN_LOADER_TAG; Wine Mono $WINE_MONO_VERSION; FreeType 2.13.3."
             echo "- Every input and its checksum: \`inputs.sh\` at $SHA."
             echo
             echo "## Files"

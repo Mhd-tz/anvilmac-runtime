@@ -1,0 +1,27 @@
+{
+  "testedMacOS": [
+    "27.0.1"
+  ],
+  "license": "LGPL-2.1-or-later (Wine); DXMT main at 647b002: LGPL-2.1-or-later, its v0.80 parts MIT; MoltenVK and the Vulkan loader Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause; SDL zlib; x87sidecar MIT",
+  "graphics": {
+    "wined3d": {
+      "status": "untested",
+      "evidence": "Not separately rated; WineD3D on macOS is capped at FL 9_3 (Phase 0.5). CI run 42785949989 (2026-11-10): all 12 release gates pass (console, drive map, timestamps, 32-bit transitions, OpenGL buffers, game video, msync, x87sidecar). Unigine Heaven's Direct3D 9 mode draws (owner, on the first 11.19-16 build with the same Wine)."
+    },
+    "dxmt": {
+      "status": "tested",
+      "evidence": "DXMT main at 647b002 (384 commits after v0.80) plus patches 0001 and 0004-0008; 0008 is upstream 0df86108 (geometry shader draws without an index buffer). CI run 42785949989: a hidden 32- and 64-bit Direct3D 11 test at about 120 fps as on 11.19-15; a new hidden geometry-shader test draws with and without an index buffer, 32- and 64-bit. Owner played Void's Cave and Mothville (60 fps cap, no DXMT errors) and Irreplaceable Turbines with -dx11 (same frame rate as 11.19-15)."
+    },
+    "moltenvk": {
+      "status": "tested",
+      "evidence": "MoltenVK 1.4.2 unchanged from 11.19-15; CI run 42785949989 console checks pass."
+    },
+    "dxvk": {
+      "status": "absent"
+    },
+    "d3dmetal": {
+      "status": "tested",
+      "evidence": "Loads the user's own imported Game Porting Toolkit 4.0b3 (never shipped), unchanged; D3D12 and D3D11 device probes pass on CI run 42785949989."
+    }
+  }
+}
