@@ -19,3 +19,5 @@
 0018-ntdll-Start-i386-processes-under-x87sidecar-when-ROSETTA_X87_PATH-is-set.patch
 0019-winemac-Don-t-double-HORZRES-and-VERTRES-in-retina-mode.patch
 0020-winemac-Fix-use-after-free-race-in-run_cocoa_app.patch
+0021-ntdll-Wake-short-sleeps-on-time-on-macOS.patch
+0022-winecoreaudio-Follow-macOS-s-default-output-device.patch

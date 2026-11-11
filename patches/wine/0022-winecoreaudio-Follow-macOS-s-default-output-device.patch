@@ -1,0 +1,155 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] winecoreaudio: Move render streams to macOS's new default output device.
+
+Wine binds each stream to one CoreAudio device, and mmdevapi tells programs about a new default device only through
+the registry (Wine bug 54779), which macOS never changes. So when AirPods connect, or the user picks another output
+in Control Center, a game keeps playing on the old device until it restarts (Unleashed Recompiled on the Mac's
+speakers while macOS had moved to AirPods, owner, 2026-11-10).
+
+A render stream that was opened on the then-default output device now follows it: a listener on
+kAudioHardwarePropertyDefaultOutputDevice stops the stream's output unit, uninitialises it, points it at the new
+device, sets the stream format, channel layout and buffer frame size again, initialises it and starts it again (Wine
+keeps a stream's unit running for its whole life, rendering silence while paused). Streams opened on a specific
+device stay on it. The listener runs on a CoreAudio thread, so nothing in it
+logs. Owner, 2026-11-10: game sound moved to AirPods and back while playing (local test build of 11.19-16).
+
+License: LGPL-2.1-or-later, as Wine. Written for AnvilMac's runtime (anvilmac-runtime), not from upstream.
+---
+diff --git a/dlls/winecoreaudio.drv/coreaudio.c b/dlls/winecoreaudio.drv/coreaudio.c
+--- a/dlls/winecoreaudio.drv/coreaudio.c
++++ b/dlls/winecoreaudio.drv/coreaudio.c
+@@ -784,8 +784,117 @@
+ 
+     *n_samples_per_sec = rate;
+     return S_OK;
++}
++
++/* Render streams opened on macOS's default output device follow it when it changes (AirPods connected, the user
++ * picks another output in Control Center), as every Mac app does; without this the game keeps playing on the old
++ * device until it restarts (Wine bug 54779). The listener runs on a CoreAudio thread that isn't a Wine thread, so
++ * nothing in it may log (like ca_render_cb). */
++static os_unfair_lock follow_lock = OS_UNFAIR_LOCK_INIT;
++static struct coreaudio_stream **follow_streams;
++static unsigned int follow_count, follow_size;
++static BOOL follow_listening;
++
++static const AudioObjectPropertyAddress default_output_addr = {
++    kAudioHardwarePropertyDefaultOutputDevice,
++    kAudioObjectPropertyScopeGlobal,
++    kAudioObjectPropertyElementMain
++};
++
++static AudioDeviceID get_default_output_device(void)
++{
++    AudioDeviceID id = kAudioObjectUnknown;
++    UInt32 size = sizeof(id);
++
++    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &default_output_addr, 0, NULL, &size, &id) != noErr)
++        return kAudioObjectUnknown;
++    return id;
++}
++
++/* Moves a running render stream's unit to another device: same client format and channel layout. */
++static void follow_move_stream(struct coreaudio_stream *stream, AudioDeviceID dev_id)
++{
++    AudioChannelLayout layout;
++    const WAVEFORMATEX *fmt = stream->fmt;
++    UInt32 period_frames = stream->period_frames;
++    AudioObjectPropertyAddress addr = { kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyScopeOutput,
++                                        kAudioObjectPropertyElementMain };
++
++    AudioOutputUnitStop(stream->unit);
++    AudioUnitUninitialize(stream->unit);
++    if (AudioUnitSetProperty(stream->unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
++                             &dev_id, sizeof(dev_id)) == noErr)
++    {
++        AudioUnitSetProperty(stream->unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0,
++                             &stream->dev_desc, sizeof(stream->dev_desc));
++        layout.mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelBitmap;
++        layout.mChannelBitmap = (fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE) ? ((WAVEFORMATEXTENSIBLE *)fmt)->dwChannelMask : 0x3;
++        layout.mNumberChannelDescriptions = 0;
++        AudioUnitSetProperty(stream->unit, kAudioUnitProperty_AudioChannelLayout, kAudioUnitScope_Input, 0,
++                             &layout, sizeof(layout));
++        AudioObjectSetPropertyData(dev_id, &addr, 0, NULL, sizeof(period_frames), &period_frames);
++        os_unfair_lock_lock(&stream->lock);
++        stream->dev_id = dev_id;
++        os_unfair_lock_unlock(&stream->lock);
++    }
++    AudioUnitInitialize(stream->unit);
++    AudioOutputUnitStart(stream->unit);
++}
++
++static OSStatus default_output_changed(AudioObjectID object, UInt32 count,
++                                       const AudioObjectPropertyAddress *addresses, void *user)
++{
++    AudioDeviceID dev_id = get_default_output_device();
++    unsigned int i;
++
++    if (dev_id == kAudioObjectUnknown) return noErr;
++    os_unfair_lock_lock(&follow_lock);
++    for (i = 0; i < follow_count; i++)
++        if (follow_streams[i]->dev_id != dev_id) follow_move_stream(follow_streams[i], dev_id);
++    os_unfair_lock_unlock(&follow_lock);
++    return noErr;
+ }
+ 
++static void follow_default_output(struct coreaudio_stream *stream)
++{
++    BOOL listen = FALSE;
++
++    os_unfair_lock_lock(&follow_lock);
++    if (follow_count == follow_size)
++    {
++        unsigned int size = follow_size ? follow_size * 2 : 8;
++        struct coreaudio_stream **streams = realloc(follow_streams, size * sizeof(*streams));
++        if (!streams)
++        {
++            os_unfair_lock_unlock(&follow_lock);
++            return;
++        }
++        follow_streams = streams;
++        follow_size = size;
++    }
++    follow_streams[follow_count++] = stream;
++    if (!follow_listening) listen = follow_listening = TRUE;
++    os_unfair_lock_unlock(&follow_lock);
++
++    if (listen && AudioObjectAddPropertyListener(kAudioObjectSystemObject, &default_output_addr,
++                                                 default_output_changed, NULL) != noErr)
++        WARN("Couldn't listen for default output device changes\n");
++}
++
++static void stop_following(struct coreaudio_stream *stream)
++{
++    unsigned int i;
++
++    os_unfair_lock_lock(&follow_lock);
++    for (i = 0; i < follow_count; i++)
++        if (follow_streams[i] == stream)
++        {
++            follow_streams[i] = follow_streams[--follow_count];
++            break;
++        }
++    os_unfair_lock_unlock(&follow_lock);
++}
++
+ static NTSTATUS unix_create_stream(void *args)
+ {
+     struct create_stream_params *params = args;
+@@ -886,6 +995,8 @@
+         stream->cap_bufsize_frames = muldiv(params->duration, stream->dev_desc.mSampleRate, 10000000);
+         stream->cap_buffer = malloc(stream->cap_bufsize_frames * stream->fmt->nBlockAlign);
+     }
++    else if(stream->dev_id == get_default_output_device())
++        follow_default_output(stream);
+     params->result = S_OK;
+ 
+ end:
+@@ -914,6 +1025,7 @@
+         NtClose(stream->timer_thread);
+     }
+ 
++    if(stream->flow == eRender) stop_following(stream);
+     if(stream->unit){
+         AudioOutputUnitStop(stream->unit);
+         AudioComponentInstanceDispose(stream->unit);

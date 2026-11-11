@@ -1,0 +1,174 @@
+From: Mahdi Taziki <61482609+Mhd-tz@users.noreply.github.com>
+Subject: [PATCH] ntdll: Wake short non-alertable sleeps on time on macOS.
+
+Two things make short sleeps on macOS late (macOS 27.0.1, M2 Pro, 2026-11-10):
+- macOS gives an ordinary timer a leeway of a quarter of its duration (timer coalescing). NtDelayExecution waits with
+  select(), so Sleep(4) under Wine wakes 1.01 ms late (median of 400; Sleep(1) 0.26 ms, Sleep(2) 0.52, Sleep(3)
+  0.77). A kqueue timer marked NOTE_CRITICAL gets no leeway (native, 4 ms waits: 0.03 ms late, median of 100,
+  against 1.01 ms for select(), nanosleep() and mach_wait_until()).
+- sched_yield() drops the thread to the lowest priority until it runs again, which can hold it off for a whole 10 ms
+  scheduler quantum, and NtDelayExecution yields before every wait: 10 to 37% of Sleep(1..4) calls took 10 ms or
+  more in a Wine program on an idle Mac, and natively a sched_yield() before 1-4 ms waits did the same (15-35%,
+  none without it). thread_switch() without an option yields the processor without lowering the priority.
+
+Programs that pace themselves with short sleeps and yields lose that time on every round: Unleashed Recompiled's
+audio thread produces one 5.33 ms slice per interval, sleeping whole milliseconds and then yielding until the
+boundary, with no catch-up; after about 28 minutes of play it under-produces (425k of 480k frames per 10 s) and the
+sound crackles. Natively, the same loop lost 439 of 900 slices with select() and sched_yield(), and none with a
+critical timer and thread_switch().
+
+So on macOS: non-alertable waits under 100 ms use a NOTE_CRITICAL kqueue timer (one kqueue per thread, closed when
+the thread exits); a wait with time left no longer yields first (a zero or past timeout still yields); and
+NtYieldExecution yields with thread_switch(). Longer waits, alertable waits and other systems are unchanged.
+WINEPRECISESLEEP=0 turns all three off.
+
+License: LGPL-2.1-or-later, as Wine. Written for AnvilMac's runtime (anvilmac-runtime), not from upstream.
+---
+diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
+--- a/dlls/ntdll/unix/sync.c
++++ b/dlls/ntdll/unix/sync.c
+@@ -56,6 +56,8 @@
+ #include <time.h>
+ #ifdef __APPLE__
+ # include <mach/mach_time.h>
++# include <mach/mach_traps.h>
++# include <mach/thread_switch.h>
+ #endif
+ #ifdef HAVE_KQUEUE
+ # include <sys/event.h>
+@@ -2389,14 +2391,93 @@
+     select_op.signal_and_wait.wait = wine_server_obj_handle( wait );
+     select_op.signal_and_wait.signal = wine_server_obj_handle( signal );
+     return server_wait( &select_op, sizeof(select_op.signal_and_wait), flags, timeout );
++}
++
++
++#if defined(__APPLE__) && defined(HAVE_KQUEUE) && defined(NOTE_CRITICAL)
++
++/* Short waits and yields on macOS (WINEPRECISESLEEP=0 turns this off):
++ * - macOS gives an ordinary timer a leeway of a quarter of its duration (timer coalescing), so select() for 4 ms
++ *   wakes about 1 ms late. A kqueue timer marked NOTE_CRITICAL gets no leeway; used for waits under 100 ms, from one
++ *   kqueue per thread, closed when the thread exits.
++ * - sched_yield() drops the thread to the lowest priority until it runs again, which can hold it off for a whole
++ *   10 ms scheduler quantum, and NtDelayExecution yielded before every wait. thread_switch() without an option yields
++ *   the processor without that, and a wait that has time left to wait no longer yields first. */
++#define PRECISE_DELAY_MAX_USEC 100000
++
++static pthread_once_t precise_delay_once = PTHREAD_ONCE_INIT;
++static pthread_key_t precise_delay_key;
++static BOOL precise_delay_enabled;
++
++static void close_precise_delay_kq( void *ptr )
++{
++    close( (int)(intptr_t)ptr - 1 );
++}
++
++static void init_precise_delay(void)
++{
++    const char *env = getenv( "WINEPRECISESLEEP" );
++
++    precise_delay_enabled = !(env && env[0] == '0' && !env[1]) &&
++                            !pthread_key_create( &precise_delay_key, close_precise_delay_kq );
++}
++
++static BOOL use_precise_delay(void)
++{
++    pthread_once( &precise_delay_once, init_precise_delay );
++    return precise_delay_enabled;
++}
++
++/* Waits usec microseconds: 1 when the time has passed, 0 when interrupted, -1 when not available. */
++static int precise_delay( timeout_t usec )
++{
++    struct kevent ev, out;
++    void *ptr;
++    int kq;
++
++    if (!use_precise_delay() || usec >= PRECISE_DELAY_MAX_USEC) return -1;
++    if (!(ptr = pthread_getspecific( precise_delay_key )))
++    {
++        if ((kq = kqueue()) == -1) return -1;
++        ptr = (void *)(intptr_t)(kq + 1);
++        if (pthread_setspecific( precise_delay_key, ptr ))
++        {
++            close( kq );
++            return -1;
++        }
++    }
++    kq = (int)(intptr_t)ptr - 1;
++    EV_SET( &ev, 1, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_USECONDS | NOTE_CRITICAL, usec, NULL );
++    if (kevent( kq, &ev, 1, &out, 1, NULL ) == 1) return 1;
++    return errno == EINTR ? 0 : -1;
+ }
+ 
++#else
+ 
++static BOOL use_precise_delay(void)
++{
++    return FALSE;
++}
++
++static int precise_delay( timeout_t usec )
++{
++    return -1;
++}
++
++#endif
++
+ /******************************************************************
+  *		NtYieldExecution (NTDLL.@)
+  */
+ NTSTATUS WINAPI NtYieldExecution(void)
+ {
++#ifdef __APPLE__
++    if (use_precise_delay())
++    {
++        thread_switch( MACH_PORT_NULL, SWITCH_OPTION_NONE, 0 );
++        return STATUS_SUCCESS;
++    }
++#endif
+ #ifdef HAVE_SCHED_YIELD
+ #ifdef RUSAGE_THREAD
+     struct rusage u1, u2;
+@@ -2448,10 +2529,19 @@
+             when = now.QuadPart - when;
+         }
+ 
+-        /* Note that we yield after establishing the desired timeout, but
+-           we only care about the result of the yield for zero timeouts */
+-        status = NtYieldExecution();
+-        if (!when) return status;
++        if (use_precise_delay())
++        {
++            /* yield only when there is nothing left to wait for */
++            NtQuerySystemTime( &now );
++            if (when - now.QuadPart <= 0) return NtYieldExecution();
++        }
++        else
++        {
++            /* Note that we yield after establishing the desired timeout, but
++               we only care about the result of the yield for zero timeouts */
++            status = NtYieldExecution();
++            if (!when) return status;
++        }
+ 
+         for (;;)
+         {
+@@ -2459,11 +2549,17 @@
+             NtQuerySystemTime( &now );
+             diff = (when - now.QuadPart + 9) / 10;
+             if (diff <= 0) break;
++            switch (precise_delay( diff ))
++            {
++            case 1: goto done;
++            case 0: continue;
++            }
+             tv.tv_sec  = diff / 1000000;
+             tv.tv_usec = diff % 1000000;
+             if (select( 0, NULL, NULL, NULL, &tv ) != -1) break;
+         }
+     }
++done:
+     return STATUS_SUCCESS;
+ }
+ 
