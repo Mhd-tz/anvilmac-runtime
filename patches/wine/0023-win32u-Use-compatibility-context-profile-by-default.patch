@@ -1,0 +1,80 @@
+Subject: win32u: Use compatibility context profile by default.
+Author: Rémi Bernon (CodeWeavers), WineHQ commit 72a296b68883b37a1acea84d72b1f3ee5f455441 (2026-11-02), applied verbatim.
+Licence: LGPL-2.1-or-later, same as Wine.
+Provenance: https://gitlab.winehq.org/wine/wine/-/commit/72a296b68883b37a1acea84d72b1f3ee5f455441 (upstream master after
+wine-11.19). Applied after 0001-0022 to Wine 11.19, source tarball
+73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f. Not submitted upstream by AnvilMac (it is upstream).
+Why (AnvilMac, 2026-11-12): wglCreateContextAttribsARB with neither a version nor a profile (GLFW's default, as used by
+LWJGL games) left the profile blank, so the new legacy context was shared with the core-profile root context, and
+macOS refused: "CGLCreateContext() failed with error 10009 invalid share context". Project Zomboid 42.22 quit after
+about 15 s without a window; with this patch on a local 11.19-16 build it started and ran 6 minutes at about 120 fps
+(owner, 2026-11-12).
+
+From 72a296b68883b37a1acea84d72b1f3ee5f455441 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?R=C3=A9mi=20Bernon?= <rbernon@codeweavers.com>
+Date: Mon, 2 Nov 2026 14:50:03 +0100
+Subject: [PATCH] win32u: Use compatibility context profile by default.
+
+Fixes context creation on macOS when no profile is specified.
+---
+ dlls/opengl32/tests/opengl.c | 21 +++++++++++++++++++++
+ dlls/win32u/opengl.c         |  4 ++++
+ 2 files changed, 25 insertions(+)
+
+diff --git a/dlls/opengl32/tests/opengl.c b/dlls/opengl32/tests/opengl.c
+index 7324a7e6829..9ed857cb150 100644
+--- a/dlls/opengl32/tests/opengl.c
++++ b/dlls/opengl32/tests/opengl.c
+@@ -3367,6 +3367,7 @@ static void test_wglCreateContextAttribsARB( HDC hdc )
+     static const int gl32_fwd_attribs[] = { WGL_CONTEXT_MAJOR_VERSION_ARB, 3, WGL_CONTEXT_MINOR_VERSION_ARB, 2, WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB, 0 };
+     static const int gl32_comp_attribs[] = { WGL_CONTEXT_MAJOR_VERSION_ARB, 3, WGL_CONTEXT_MINOR_VERSION_ARB, 2, WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB, 0 };
+ 
++    static const int debug_attribs[] = { WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB, 0 };
+     static const int gl10_attribs[] = { WGL_CONTEXT_MAJOR_VERSION_ARB, 1, 0 };
+     static const int gl21_attribs[] = { WGL_CONTEXT_MAJOR_VERSION_ARB, 2, WGL_CONTEXT_MINOR_VERSION_ARB, 1, 0 };
+     static const int gl30_attribs[] = { WGL_CONTEXT_MAJOR_VERSION_ARB, 3, WGL_CONTEXT_MINOR_VERSION_ARB, 0, 0 };
+@@ -3448,6 +3449,26 @@ static void test_wglCreateContextAttribsARB( HDC hdc )
+     ok_ret( TRUE, wglDeleteContext( ctx ) );
+ 
+ 
++    /* not specifying any version is the same as the default / wglCreateContext */
++    ctx = ext.wglCreateContextAttribsARB( hdc, NULL, debug_attribs );
++    ok_ptr( ctx, !=, NULL );
++    ok_ret( TRUE, wglMakeCurrent( hdc, ctx ) );
++
++    glGetIntegerv( GL_MAJOR_VERSION, &major );
++    glGetIntegerv( GL_MINOR_VERSION, &minor );
++    ok_ret( 0, glGetError() );
++    ok( major == 3 /* AMD */ || major == expect_major /* NVIDIA */, "got major %u\n", major );
++    ok( minor == 2 /* AMD */ || minor == expect_minor /* NVIDIA */, "got minor %u\n", minor );
++
++    glGetIntegerv( GL_CONTEXT_PROFILE_MASK, &profile );
++    glGetIntegerv( GL_CONTEXT_FLAGS, &flags );
++    ok_ret( 0, glGetError() );
++    todo_wine ok_x4( flags, ==, GL_CONTEXT_FLAG_DEBUG_BIT );
++    ok( profile == 0 /* AMD */ || profile == GL_CONTEXT_COMPATIBILITY_PROFILE_BIT /* NVIDIA */, "got profile %u\n", profile );
++
++    ok_ret( TRUE, wglDeleteContext( ctx ) );
++
++
+     /* requesting non-forward version < 3.0 is ignored */
+     ctx = ext.wglCreateContextAttribsARB( hdc, NULL, gl10_attribs );
+     ok_ptr( ctx, !=, NULL );
+diff --git a/dlls/win32u/opengl.c b/dlls/win32u/opengl.c
+index d8812c77c5c..34c60d50c9f 100644
+--- a/dlls/win32u/opengl.c
++++ b/dlls/win32u/opengl.c
+@@ -3110,6 +3110,10 @@ static struct opengl_context *win32u_context_create( HDC hdc, struct opengl_cont
+         WARN( "Using default core profile for context version %d.%d\n", attrs.major, attrs.minor );
+         attrs.profile = WGL_CONTEXT_CORE_PROFILE_BIT_ARB;
+     }
++    else if (!attrs.profile)
++    {
++        attrs.profile = WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB;
++    }
+ 
+     if (!(root = get_root_context( attrs )) || (share && share->root_context != root))
+     {
+-- 
+GitLab
+
