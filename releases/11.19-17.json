@@ -1,0 +1,27 @@
+{
+  "testedMacOS": [
+    "27.0.1"
+  ],
+  "license": "LGPL-2.1-or-later (Wine); DXMT main at 647b002: LGPL-2.1-or-later, its v0.80 parts MIT; MoltenVK and the Vulkan loader Apache-2.0; FreeType FTL; GStreamer, GLib and proxy-libintl LGPL; libffi MIT; PCRE2 BSD-3-Clause; SDL zlib; x87sidecar MIT",
+  "graphics": {
+    "wined3d": {
+      "status": "untested",
+      "evidence": "Not separately rated; WineD3D on macOS is capped at FL 9_3 (Phase 0.5). CI run 43179829920 (2026-11-12): all 12 release gates pass (console, drive map, timestamps, 32-bit transitions, OpenGL buffers, game video, msync, x87sidecar). Graphics code unchanged from 11.19-16 except Wine patch 0023 (OpenGL contexts without a profile); Project Zomboid 42.22 (OpenGL) starts and plays (owner)."
+    },
+    "dxmt": {
+      "status": "tested",
+      "evidence": "Unchanged from 11.19-16: DXMT main at 647b002 plus patches 0001 and 0004-0008. CI run 43179829920: a hidden 32- and 64-bit Direct3D 11 test at 120.5 and 120.9 fps (as on 11.19-16); the geometry-shader test draws with and without an index buffer, 32- and 64-bit."
+    },
+    "moltenvk": {
+      "status": "tested",
+      "evidence": "MoltenVK 1.4.2 unchanged from 11.19-16; CI run 43179829920 console checks pass."
+    },
+    "dxvk": {
+      "status": "absent"
+    },
+    "d3dmetal": {
+      "status": "tested",
+      "evidence": "Loads the user's own imported Game Porting Toolkit 4.0b3 (never shipped), unchanged; D3D12 and D3D11 device probes pass on CI run 43179829920. Owner played Sonic Unleashed Recompiled (Direct3D 12 on D3DMetal) for 32 minutes on this build: 60 fps, sound fine."
+    }
+  }
+}
