@@ -25,6 +25,7 @@ Tested 2026-11-06/07 on a local build of 11.19-14 plus this patch (AnvilMac harn
 sidecar's binary64 result, proof of the hook); wrapping the first wine process instead gives no hook (4,437 ms).
 Owner-played, Wine's fps trace, off vs on: Shank slowest 10 % 38 -> 57 fps; Max Payne median 35 -> 120 fps, slowest
 10 % 15 -> 91; SPORE (30 fps cap) slowest 10 % 28.3 -> 29.8; no visual or sound problems.
+  Refreshed for wine-11.22 (AnvilMac, 2026-11-13): context only; the same lines are added and removed.
 ---
 diff --git a/dlls/ntdll/unix/coop_proto.h b/dlls/ntdll/unix/coop_proto.h
 new file mode 100644
@@ -95,7 +96,7 @@ index 0000000..d75777e
 +
 +#endif  // X87SIDECAR_COOP_PROTO_H
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
-index 9da206d..94a4914 100644
+index a1d4735..ad43878 100644
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
 @@ -69,6 +69,9 @@
@@ -178,15 +179,15 @@ index 9da206d..94a4914 100644
  }
  
 @@ -499,7 +541,7 @@ NTSTATUS exec_wineloader( char **argv, int socketfd, const struct pe_image_info
-     putenv( preloader_reserve );
-     putenv( socket_env );
+         putenv( preloader_reserve );
+     }
  
 -    return loader_exec( argv, machine );
 +    return loader_exec( argv, machine, machine == IMAGE_FILE_MACHINE_I386 );
  }
  
  
-@@ -2035,7 +2077,7 @@ static void reexec_loader( int argc, char *argv[], char *extra_arg )
+@@ -2011,7 +2053,7 @@ static void reexec_loader( int argc, char *argv[], char *extra_arg )
      /* default to 32-bit loader to support 32-bit prefixes */
      if (machine == IMAGE_FILE_MACHINE_AMD64) machine = IMAGE_FILE_MACHINE_I386;
  
@@ -195,7 +196,7 @@ index 9da206d..94a4914 100644
      fatal_error( "could not exec the wine loader\n" );
  }
  
-@@ -2097,6 +2139,145 @@ static void check_command_line( int argc, char *argv[] )
+@@ -2073,6 +2115,145 @@ static void check_command_line( int argc, char *argv[] )
  }
  
  
@@ -341,7 +342,7 @@ index 9da206d..94a4914 100644
  /***********************************************************************
   *           __wine_main
   *
-@@ -2107,6 +2288,11 @@ DECLSPEC_EXPORT void __wine_main( int argc, char *argv[] )
+@@ -2083,6 +2264,11 @@ DECLSPEC_EXPORT void __wine_main( int argc, char *argv[] )
      main_argc = argc;
      main_argv = argv;
  

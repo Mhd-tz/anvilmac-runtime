@@ -2,10 +2,12 @@
 # use; a mismatch stops the build. Checked 2026-10-15. Change a pin only together with its checksum.
 
 # --- Wine ------------------------------------------------------------------------------------------------------------
-WINE_VERSION=11.19
-WINE_URL=https://gitlab.winehq.org/wine/wine/-/archive/wine-11.19/wine-wine-11.19.tar.gz
-WINE_SHA=73eb0b02dfc0cb0ff4f4d8d36c5786261e9725ac91968ae4d4e4b9a498c4087f   # = Gcenx wine-devel Portfile (macports-wine 092031f7)
-WINE_DIR=wine-wine-11.19
+# Wine 11.22 (tag 9f8c4ae4d3, 2026-11-13). The archive's contents equal WineHQ's release tarball
+# dl.winehq.org/wine/source/11.x/wine-11.22.tar.xz file for file; this digest was the same on two downloads (2026-11-13).
+WINE_VERSION=11.22
+WINE_URL=https://gitlab.winehq.org/wine/wine/-/archive/wine-11.22/wine-wine-11.22.tar.gz
+WINE_SHA=4f36ffee1b638a205174a10121ea4ca3bdb82c672b541385d56584318b210636
+WINE_DIR=wine-wine-11.22
 
 # --- Toolchains ------------------------------------------------------------------------------------------------------
 # llvm-mingw for Wine's PE parts (Gcenx's ports use MacPorts' current llvm-mingw; we pin the release used for 11.0_1).
@@ -50,7 +52,7 @@ MOLTENVK_VERSION=1.4.2
 MOLTENVK_URL=https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
 MOLTENVK_SHA=f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e      # GitHub release asset digest
 
-# Wine Mono (.NET for Windows programs), the version Wine 11.19 asks for (dlls/appwiz.cpl/addons.c MONO_VERSION; the
+# Wine Mono (.NET for Windows programs), the version Wine 11.22 asks for (as 11.19) (dlls/appwiz.cpl/addons.c MONO_VERSION; the
 # release's x86 .msi digest equals Wine's compiled-in MONO_SHA). Unpacked into share/wine/mono, where Wine uses it in
 # place; its source ships in the source archive. Wine Gecko is not bundled (owner, 2026-10-16).
 WINE_MONO_VERSION=11.3.0
@@ -85,6 +87,6 @@ X87SIDECAR_COMMIT=03581e1b5e8465c9e78cea7c20652736a0e02f0a   # v1.9.1 (2026-11-0
 MACOSX_DEPLOYMENT_TARGET=10.15                             # as Gcenx's builds
 # The release number is part of the package folder name and the manifest id, so two releases of the same Wine version
 # can be installed side by side (games pinned to the older one keep working).
-RUNTIME_RELEASE=17
-RUNTIME_ID=anvilmac-wine-11.19-$RUNTIME_RELEASE-dxmt-$DXMT_LABEL-x86_64
-RUNTIME_NAME="AnvilMac Runtime 11.19-$RUNTIME_RELEASE (Wine 11.19 + DXMT $DXMT_LABEL)"
+RUNTIME_RELEASE=1
+RUNTIME_ID=anvilmac-wine-$WINE_VERSION-$RUNTIME_RELEASE-dxmt-$DXMT_LABEL-x86_64
+RUNTIME_NAME="AnvilMac Runtime $WINE_VERSION-$RUNTIME_RELEASE (Wine $WINE_VERSION + DXMT $DXMT_LABEL)"

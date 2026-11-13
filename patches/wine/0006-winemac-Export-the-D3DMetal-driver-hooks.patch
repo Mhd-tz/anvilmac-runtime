@@ -25,9 +25,10 @@ Provenance (recorded by AnvilMac, 2026-10-17):
             tests, 2026-10-18).
   Nothing from Apple is in this change or in the runtime: the user imports Apple's Game Porting Toolkit into AnvilMac,
   which loads it only for a game the user runs with D3DMetal.
+  Refreshed for wine-11.22 (AnvilMac, 2026-11-13): context only; the same lines are added and removed.
 ---
 diff --git a/dlls/winemac.drv/Makefile.in b/dlls/winemac.drv/Makefile.in
-index 1eb2b9c..ecd15bf 100644
+index 7efe299..5b633c2 100644
 --- a/dlls/winemac.drv/Makefile.in
 +++ b/dlls/winemac.drv/Makefile.in
 @@ -1,7 +1,7 @@
@@ -38,8 +39,8 @@ index 1eb2b9c..ecd15bf 100644
 +DELAYIMPORTS = advapi32 ole32 shell32 imm32
  UNIX_LIBS    = \
  	-lwin32u \
- 	-framework AppKit \
-@@ -26,6 +26,8 @@ SOURCES = \
+ 	-framework Accelerate \
+@@ -28,6 +28,8 @@ SOURCES = \
  	cocoa_opengl.m \
  	cocoa_status_item.m \
  	cocoa_window.m \
@@ -49,10 +50,10 @@ index 1eb2b9c..ecd15bf 100644
  	dllmain.c \
  	event.c \
 diff --git a/dlls/winemac.drv/cocoa_window.m b/dlls/winemac.drv/cocoa_window.m
-index 94fc3e7..a4dad8e 100644
+index 3447627..238ee78 100644
 --- a/dlls/winemac.drv/cocoa_window.m
 +++ b/dlls/winemac.drv/cocoa_window.m
-@@ -31,6 +31,7 @@
+@@ -32,6 +32,7 @@
  #import "cocoa_app.h"
  #import "cocoa_event.h"
  #import "cocoa_opengl.h"
@@ -60,7 +61,7 @@ index 94fc3e7..a4dad8e 100644
  
  #pragma GCC diagnostic ignored "-Wdeclaration-after-statement"
  
-@@ -243,6 +244,8 @@ @interface WineContentView : WineBaseView <NSTextInputClient, NSViewLayerContent
+@@ -244,6 +245,8 @@ @interface WineContentView : WineBaseView <NSTextInput, NSViewLayerContentScaleD
  
      WineMetalView *_metalView;
      NSMutableDictionary<NSNumber*, CALayerHost*>* _caLayerHosts;
@@ -69,7 +70,7 @@ index 94fc3e7..a4dad8e 100644
  }
  
  @property (readonly, nonatomic) BOOL everHadGLContext;
-@@ -849,7 +852,7 @@ - (void) setRetinaMode:(BOOL)mode
+@@ -826,7 +829,7 @@ - (void) setRetinaMode:(BOOL)mode
  
      - (CALayer*) makeBackingLayer
      {
@@ -78,7 +79,7 @@ index 94fc3e7..a4dad8e 100644
          layer.device = _device;
          layer.framebufferOnly = YES;
          layer.magnificationFilter = kCAFilterNearest;
-@@ -3843,6 +3846,20 @@ void macdrv_set_view_backing_size(WineContentView *view, const int backing_size[
+@@ -3822,6 +3825,20 @@ void macdrv_set_view_backing_size(WineContentView *view, const int backing_size[
          [view wine_setBackingSize:backing_size];
  }
  
@@ -796,26 +797,26 @@ index bbd528d..e229a47 100644
      if (MACDRV_CALL(init, &params)) return FALSE;
  
 diff --git a/dlls/winemac.drv/event.c b/dlls/winemac.drv/event.c
-index 18185a6..b637181 100644
+index d374b51..33582b5 100644
 --- a/dlls/winemac.drv/event.c
 +++ b/dlls/winemac.drv/event.c
-@@ -38,6 +38,7 @@ static const char *dbgstr_event(int type)
-         "APP_ACTIVATED",
+@@ -37,6 +37,7 @@ static const char *dbgstr_event(int type)
+     static const char * const event_names[] = {
          "APP_DEACTIVATED",
          "APP_QUIT_REQUESTED",
 +        "CLIENT_SURFACE_PRESENTED", /* D3DMetal hooks (CW HACK 22435) */
          "DISPLAYS_CHANGED",
          "HOTKEY_PRESS",
          "KEY_PRESS",
-@@ -111,6 +112,7 @@ static macdrv_event_mask get_event_mask(DWORD mask)
-         event_mask |= event_mask_for_type(APP_ACTIVATED);
+@@ -106,6 +107,7 @@ static macdrv_event_mask get_event_mask(DWORD mask)
+     {
          event_mask |= event_mask_for_type(APP_DEACTIVATED);
          event_mask |= event_mask_for_type(APP_QUIT_REQUESTED);
 +        event_mask |= event_mask_for_type(CLIENT_SURFACE_PRESENTED); /* D3DMetal hooks (CW HACK 22435) */
          event_mask |= event_mask_for_type(DISPLAYS_CHANGED);
          event_mask |= event_mask_for_type(LOST_PASTEBOARD_OWNERSHIP);
          event_mask |= event_mask_for_type(STATUS_ITEM_MOUSE_BUTTON);
-@@ -328,6 +330,9 @@ void macdrv_handle_event(const macdrv_event *event)
+@@ -318,6 +320,9 @@ void macdrv_handle_event(const macdrv_event *event)
      case APP_QUIT_REQUESTED:
          macdrv_app_quit_requested(event);
          break;
@@ -826,7 +827,7 @@ index 18185a6..b637181 100644
          macdrv_displays_changed(event);
          break;
 diff --git a/dlls/winemac.drv/macdrv.h b/dlls/winemac.drv/macdrv.h
-index 006df7b..184262a 100644
+index 104d683..304e860 100644
 --- a/dlls/winemac.drv/macdrv.h
 +++ b/dlls/winemac.drv/macdrv.h
 @@ -84,6 +84,10 @@
@@ -840,7 +841,7 @@ index 006df7b..184262a 100644
  
  extern const char* debugstr_cf(CFTypeRef t);
  
-@@ -242,6 +246,7 @@ extern void macdrv_ime_set_text(HWND hwnd, CFStringRef text, bool complete,
+@@ -243,6 +247,7 @@ extern void macdrv_ime_set_text(HWND hwnd, CFStringRef text, bool complete,
      unsigned int        per_pixel_alpha : 1;    /* is window using per-pixel alpha? */
      unsigned int        minimized : 1;          /* is window minimized? */
      unsigned int        fullscreen : 1;         /* is the window visible rect fullscreen? (unrelated to native AppKit/Cocoa fullscreen) */
@@ -849,18 +850,18 @@ index 006df7b..184262a 100644
  
  struct macdrv_client_surface
 diff --git a/dlls/winemac.drv/macdrv_cocoa.h b/dlls/winemac.drv/macdrv_cocoa.h
-index 78f92a8..4f5f713 100644
+index dd332b6..c0558b9 100644
 --- a/dlls/winemac.drv/macdrv_cocoa.h
 +++ b/dlls/winemac.drv/macdrv_cocoa.h
-@@ -256,6 +256,7 @@ static inline CGPoint cgpoint_win_from_mac(CGPoint point)
-     APP_ACTIVATED,
+@@ -257,6 +257,7 @@ static inline CGPoint cgpoint_win_from_mac(CGPoint point)
+ enum {
      APP_DEACTIVATED,
      APP_QUIT_REQUESTED,
 +    CLIENT_SURFACE_PRESENTED, /* D3DMetal hooks (CW HACK 22435) */
      DISPLAYS_CHANGED,
      HOTKEY_PRESS,
      KEY_PRESS,
-@@ -306,6 +307,10 @@ static inline CGPoint cgpoint_win_from_mac(CGPoint point)
+@@ -304,6 +305,10 @@ static inline CGPoint cgpoint_win_from_mac(CGPoint point)
          struct {
              int reason;
          }                                           app_quit_requested;
@@ -871,7 +872,7 @@ index 78f92a8..4f5f713 100644
          struct {
              bool activating;
          }                                           displays_changed;
-@@ -513,6 +518,10 @@ extern void macdrv_order_cocoa_window(WineWindow *window, WineWindow *prev,
+@@ -511,6 +516,10 @@ extern void macdrv_order_cocoa_window(WineWindow *window, WineWindow *prev,
  extern void macdrv_release_remote_layer(void* hwnd, unsigned int context_id);
  extern bool macdrv_get_view_backing_size(WineContentView *view, int backing_size[2]);
  extern void macdrv_set_view_backing_size(WineContentView *view, const int backing_size[2]);
@@ -883,7 +884,7 @@ index 78f92a8..4f5f713 100644
  extern bool macdrv_send_keydown_to_input_source(int keyc, unsigned int flags, int repeat, void *update);
  extern void macdrv_clear_ime_text(void);
 diff --git a/dlls/winemac.drv/macdrv_main.c b/dlls/winemac.drv/macdrv_main.c
-index b50068b..9756849 100644
+index cc3d3b3..4375778 100644
 --- a/dlls/winemac.drv/macdrv_main.c
 +++ b/dlls/winemac.drv/macdrv_main.c
 @@ -57,6 +57,10 @@ bool enable_app_nap = false;
@@ -907,7 +908,7 @@ index b50068b..9756849 100644
  
      status = SessionGetInfo(callerSecuritySession, NULL, &attributes);
      if (status != noErr || !(attributes & sessionHasGraphicAccess))
-@@ -610,12 +617,18 @@ static NTSTATUS wow64_init(void *arg)
+@@ -611,12 +618,18 @@ static NTSTATUS wow64_init(void *arg)
          ULONG strings;
          UINT64 app_icon_callback;
          UINT64 app_quit_request_callback;
@@ -992,10 +993,10 @@ index dc22da0..1661bd5 100644
  {
      return (void *)(UINT_PTR)param;
 diff --git a/dlls/winemac.drv/window.c b/dlls/winemac.drv/window.c
-index 7d8bf13..65a58e2 100644
+index e025823..6a953c3 100644
 --- a/dlls/winemac.drv/window.c
 +++ b/dlls/winemac.drv/window.c
-@@ -1267,6 +1267,9 @@ void macdrv_DestroyWindow(HWND hwnd)
+@@ -1284,6 +1284,9 @@ void macdrv_DestroyWindow(HWND hwnd)
  
      destroy_cocoa_window(data);
  

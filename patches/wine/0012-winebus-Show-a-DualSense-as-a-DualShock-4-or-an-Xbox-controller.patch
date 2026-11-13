@@ -35,7 +35,10 @@ patch 0013, present).
 Protocol references (consulted 2026-10-29): Linux drivers/hid/hid-playstation.c
 (DualSense input/output report layout, Bluetooth CRC), Linux drivers/hid/hid-sony.c and
 SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copied.
+  Refreshed for wine-11.22 (AnvilMac, 2026-11-13): context only; the same lines are added and removed.
 ---
+diff --git a/dlls/winebus.sys/bus_iohid.c b/dlls/winebus.sys/bus_iohid.c
+index c9076d7..cb503bd 100644
 --- a/dlls/winebus.sys/bus_iohid.c
 +++ b/dlls/winebus.sys/bus_iohid.c
 @@ -85,6 +85,8 @@
@@ -47,7 +50,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
  
  #include "ntstatus.h"
  #include "windef.h"
-@@ -131,12 +133,26 @@
+@@ -131,12 +133,26 @@ static struct list event_queue = LIST_INIT(event_queue);
  static struct list device_list = LIST_INIT(device_list);
  static const struct bus_options *options;
  
@@ -74,7 +77,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
  };
  
  static inline struct iohid_device *impl_from_unix_device(struct unix_device *iface)
-@@ -198,6 +214,231 @@
+@@ -198,6 +214,231 @@ static void iohid_device_init_dualshock4(struct iohid_device *impl)
          TRACE("DualShock4 Bluetooth calibration requested, length %ld\n", (long)length);
  }
  
@@ -306,7 +309,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
  static NTSTATUS iohid_device_start(struct unix_device *iface)
  {
      DWORD length;
-@@ -208,8 +449,12 @@
+@@ -208,8 +449,12 @@ static NTSTATUS iohid_device_start(struct unix_device *iface)
      length = CFNumberToDWORD(num);
      impl->buffer = malloc(length);
  
@@ -320,7 +323,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
      return STATUS_SUCCESS;
  }
  
-@@ -232,6 +477,14 @@
+@@ -232,6 +477,14 @@ static NTSTATUS iohid_device_get_report_descriptor(struct unix_device *iface, BY
      int data_length = CFDataGetLength(data);
      const UInt8 *ptr;
  
@@ -335,7 +338,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
      *out_length = data_length;
      if (length < data_length)
          return STATUS_BUFFER_TOO_SMALL;
-@@ -245,8 +498,16 @@
+@@ -245,8 +498,16 @@ static void iohid_device_set_output_report(struct unix_device *iface, HID_XFER_P
  {
      IOReturn result;
      struct iohid_device *impl = impl_from_unix_device(iface);
@@ -354,7 +357,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
      if (result == kIOReturnSuccess)
      {
          io->Information = packet->reportBufferLen;
-@@ -265,6 +526,12 @@
+@@ -265,6 +526,12 @@ static void iohid_device_get_feature_report(struct unix_device *iface, HID_XFER_
      CFIndex report_length = packet->reportBufferLen;
      struct iohid_device *impl = impl_from_unix_device(iface);
  
@@ -367,7 +370,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
      ret = IOHIDDeviceGetReport(impl->device, kIOHIDReportTypeFeature, packet->reportId,
                                 packet->reportBuffer, &report_length);
      if (ret == kIOReturnSuccess)
-@@ -284,6 +551,12 @@
+@@ -284,6 +551,12 @@ static void iohid_device_set_feature_report(struct unix_device *iface, HID_XFER_
      IOReturn result;
      struct iohid_device *impl = impl_from_unix_device(iface);
  
@@ -380,7 +383,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
      result = IOHIDDeviceSetReport(impl->device, kIOHIDReportTypeFeature, packet->reportId,
                                    packet->reportBuffer, packet->reportBufferLen);
      if (result == kIOReturnSuccess)
-@@ -400,6 +673,96 @@
+@@ -400,6 +673,96 @@ exit:
      if (!ret) desc->bus_type = BUS_TYPE_UNKNOWN;
  }
  
@@ -477,8 +480,8 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
  static void handle_DeviceMatchingCallback(void *context, IOReturn result, void *sender, IOHIDDeviceRef IOHIDDevice)
  {
      struct device_desc desc =
-@@ -407,6 +770,8 @@
-         .interface = -1, .bus_id = -1, .is_hidraw = TRUE,
+@@ -408,6 +771,8 @@ static void handle_DeviceMatchingCallback(void *context, IOReturn result, void *
+         .parent = { '/','b','u','s','/','i','o','h','i','d',0 },
      };
      struct iohid_device *impl;
 +    enum dualsense_mode dualsense;
@@ -486,7 +489,7 @@ SDL src/joystick/hidapi/SDL_hidapi_ps4.c (DualShock 4 USB layout). No code copie
      USAGE_AND_PAGE usages;
      CFStringRef str;
  
-@@ -463,12 +828,34 @@
+@@ -464,12 +829,34 @@ static void handle_DeviceMatchingCallback(void *context, IOReturn result, void *
  
      TRACE("dev %p, desc %s.\n", IOHIDDevice, debugstr_device_desc(&desc));
  

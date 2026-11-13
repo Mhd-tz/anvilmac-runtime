@@ -25,12 +25,13 @@ Tested 2026-11-02 on a local build (wineserver and ntdll.so from this tree in a 
 probe under Rosetta 2 on an M2 Pro: event set 7.7 -> 0.39 us, signalled wait 10.0 -> 0.41 us, mutex acquire and
 release 18.9 -> 1.40 us, thread hand-off 24.4 -> 6.2 us, five pairs at once 73.9 -> 12.5 us; without the variable
 the same as 11.19-12. Owner sessions of a ReXGlue game port: wineserver CPU 20-50 % -> 1.5 %, audio improved.
+  Refreshed for wine-11.22 (AnvilMac, 2026-11-13): same changes; include/wine/server_protocol.h regenerated with tools/make_requests (SERVER_PROTOCOL_VERSION 979 -> 980).
 ---
 diff --git a/dlls/ntdll/Makefile.in b/dlls/ntdll/Makefile.in
-index 9a15bc3..34fff33 100644
+index 4c43b77..c23d33c 100644
 --- a/dlls/ntdll/Makefile.in
 +++ b/dlls/ntdll/Makefile.in
-@@ -54,6 +54,7 @@ SOURCES = \
+@@ -53,6 +53,7 @@ SOURCES = \
  	unix/debug.c \
  	unix/env.c \
  	unix/file.c \
@@ -39,7 +40,7 @@ index 9a15bc3..34fff33 100644
  	unix/loadorder.c \
  	unix/process.c \
 diff --git a/dlls/ntdll/unix/loader.c b/dlls/ntdll/unix/loader.c
-index 3034089..9da206d 100644
+index 0a349d4..a1d4735 100644
 --- a/dlls/ntdll/unix/loader.c
 +++ b/dlls/ntdll/unix/loader.c
 @@ -86,6 +86,7 @@
@@ -50,7 +51,7 @@ index 3034089..9da206d 100644
  #include "wine/list.h"
  #include "wine/debug.h"
  
-@@ -1857,6 +1858,7 @@ static void start_main_thread(void)
+@@ -1833,6 +1834,7 @@ static void start_main_thread(void)
      struct thread_data *data = virtual_alloc_first_thread_data();
  
      server_init_process( data );
@@ -1282,7 +1283,7 @@ index 0000000..43af926
 +
 +#endif /* __APPLE__ */
 diff --git a/dlls/ntdll/unix/sync.c b/dlls/ntdll/unix/sync.c
-index 829c712..7ee58d2 100644
+index a6e4485..f01045e 100644
 --- a/dlls/ntdll/unix/sync.c
 +++ b/dlls/ntdll/unix/sync.c
 @@ -71,6 +71,7 @@
@@ -1400,10 +1401,10 @@ index 829c712..7ee58d2 100644
          }
          SERVER_END_REQ;
 diff --git a/include/wine/server_protocol.h b/include/wine/server_protocol.h
-index e2ef2f5..c108fd4 100644
+index e2d112e..53d374f 100644
 --- a/include/wine/server_protocol.h
 +++ b/include/wine/server_protocol.h
-@@ -6068,6 +6068,8 @@ struct get_inproc_sync_fd_reply
+@@ -6049,6 +6049,8 @@ struct get_inproc_sync_fd_reply
      struct reply_header __header;
      int           type;
      unsigned int access;
@@ -1412,12 +1413,12 @@ index e2ef2f5..c108fd4 100644
  };
  
  
-@@ -7184,6 +7186,6 @@ union generic_reply
+@@ -7197,6 +7199,6 @@ union generic_reply
      struct alpc_create_port_reply alpc_create_port_reply;
  };
  
--#define SERVER_PROTOCOL_VERSION 962
-+#define SERVER_PROTOCOL_VERSION 963
+-#define SERVER_PROTOCOL_VERSION 979
++#define SERVER_PROTOCOL_VERSION 980
  
  #endif /* __WINE_WINE_SERVER_PROTOCOL_H */
 diff --git a/server/Makefile.in b/server/Makefile.in
@@ -2542,10 +2543,10 @@ index 0000000..4d834c4
 +
 +#endif /* __APPLE__ */
 diff --git a/server/protocol.def b/server/protocol.def
-index 59aaa22..94613dc 100644
+index eca3375..81e2a4d 100644
 --- a/server/protocol.def
 +++ b/server/protocol.def
-@@ -4230,6 +4230,7 @@ enum inproc_sync_type
+@@ -4227,6 +4227,7 @@ enum inproc_sync_type
  @REPLY
      int           type;         /* inproc sync type */
      unsigned int access;        /* handle access rights */
@@ -2554,10 +2555,10 @@ index 59aaa22..94613dc 100644
  
  
 diff --git a/server/request_handlers.h b/server/request_handlers.h
-index 950b1bb..9f7b20f 100644
+index 22df234..0aa8b84 100644
 --- a/server/request_handlers.h
 +++ b/server/request_handlers.h
-@@ -2332,7 +2332,8 @@ C_ASSERT( offsetof(struct get_inproc_sync_fd_request, handle) == 12 );
+@@ -2325,7 +2325,8 @@ C_ASSERT( offsetof(struct get_inproc_sync_fd_request, handle) == 12 );
  C_ASSERT( sizeof(struct get_inproc_sync_fd_request) == 16 );
  C_ASSERT( offsetof(struct get_inproc_sync_fd_reply, type) == 8 );
  C_ASSERT( offsetof(struct get_inproc_sync_fd_reply, access) == 12 );
@@ -2568,10 +2569,10 @@ index 950b1bb..9f7b20f 100644
  C_ASSERT( offsetof(struct get_inproc_alert_fd_reply, handle) == 8 );
  C_ASSERT( sizeof(struct get_inproc_alert_fd_reply) == 16 );
 diff --git a/server/request_trace.h b/server/request_trace.h
-index f6acb47..ec720c7 100644
+index fa5634c..8512ff0 100644
 --- a/server/request_trace.h
 +++ b/server/request_trace.h
-@@ -3413,6 +3413,7 @@ static void dump_get_inproc_sync_fd_reply( const struct get_inproc_sync_fd_reply
+@@ -3401,6 +3401,7 @@ static void dump_get_inproc_sync_fd_reply( const struct get_inproc_sync_fd_reply
  {
      fprintf( stderr, " type=%d", req->type );
      fprintf( stderr, ", access=%08x", req->access );
@@ -2580,7 +2581,7 @@ index f6acb47..ec720c7 100644
  
  static void dump_get_inproc_alert_fd_request( const struct get_inproc_alert_fd_request *req )
 diff --git a/server/thread.c b/server/thread.c
-index bdf48c4..7c16850 100644
+index 986cf5d..88dfa70 100644
 --- a/server/thread.c
 +++ b/server/thread.c
 @@ -59,6 +59,7 @@
@@ -2591,7 +2592,7 @@ index bdf48c4..7c16850 100644
  
  
  /* thread queues */
-@@ -2382,6 +2383,12 @@ DECL_HANDLER(get_inproc_alert_fd)
+@@ -2398,6 +2399,12 @@ DECL_HANDLER(get_inproc_alert_fd)
      if ((fd = get_inproc_sync_fd( current->alert_sync )) < 0) set_error( STATUS_INVALID_PARAMETER );
      else
      {
