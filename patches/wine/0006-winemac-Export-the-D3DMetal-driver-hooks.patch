@@ -25,7 +25,8 @@ Provenance (recorded by AnvilMac, 2026-10-17):
             tests, 2026-10-18).
   Nothing from Apple is in this change or in the runtime: the user imports Apple's Game Porting Toolkit into AnvilMac,
   which loads it only for a game the user runs with D3DMetal.
-  Refreshed for wine-11.22 (AnvilMac, 2026-11-13): context only; the same lines are added and removed.
+  Refreshed for wine-11.22 (AnvilMac, 2026-11-15): context, and d3dm_data->pixel_format = 0 because upstream b6956148
+  (Wine 11.20) removed macdrv_win_data.pixel_format (it was only set when an OpenGL surface was created).
 ---
 diff --git a/dlls/winemac.drv/Makefile.in b/dlls/winemac.drv/Makefile.in
 index 7efe299..5b633c2 100644
@@ -105,7 +106,7 @@ new file mode 100644
 index 0000000..770a129
 --- /dev/null
 +++ b/dlls/winemac.drv/d3dmetal.c
-@@ -0,0 +1,470 @@
+@@ -0,0 +1,472 @@
 +/*
 + * Mac graphics driver hooks used by D3DMetal (part of the Apple Game Porting Toolkit)
 + *
@@ -254,7 +255,9 @@ index 0000000..770a129
 +    d3dm_data->window_rect = data->rects.window;
 +    d3dm_data->whole_rect = data->rects.visible;
 +    d3dm_data->client_rect = data->rects.client;
-+    d3dm_data->pixel_format = data->pixel_format;
++    /* pixel_format left macdrv_win_data in Wine 11.20 (b6956148): it only recorded OpenGL surfaces' format, which a
++       D3DMetal window never has, so it was 0 here. Keep the field (the table layout is fixed) and pass 0. */
++    d3dm_data->pixel_format = 0;
 +    /* color_key is no longer present in macdrv_win_data. Assume D3DMetal doesn't use it. */
 +    d3dm_data->drag_event = data->drag_event;
 +    d3dm_data->on_screen = data->on_screen;
